@@ -1,3 +1,3 @@
-# My first mod
+# 3QsVanillaTweaks
 
-Description.
+Vanilla tweaks for Risk of Rain 2, by 3Questionmarks.

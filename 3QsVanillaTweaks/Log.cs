@@ -1,6 +1,6 @@
-﻿using BepInEx.Logging;
+using BepInEx.Logging;
 
-namespace ExamplePlugin
+namespace ThreeQsVanillaTweaks
 {
     internal static class Log
     {
