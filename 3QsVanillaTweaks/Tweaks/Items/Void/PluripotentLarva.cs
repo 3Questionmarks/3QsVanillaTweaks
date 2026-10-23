@@ -2,9 +2,9 @@ using BepInEx.Configuration;
 using R2API;
 using RoR2;
 using UnityEngine.Networking;
-using ModConfig = ThreeQsVanillaTweaks.Config.ConfigManager;
+using ModConfig = Config.ConfigManager;
 
-namespace ThreeQsVanillaTweaks.Tweaks.Items.Void
+namespace Tweaks.Items.Void
 {
     internal static class PluripotentLarva
     {
@@ -16,7 +16,7 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Void
             enabled = ModConfig.BindBool(Section, "Enabled", true,
                 "Restore consumed Pluripotent Larva stacks at the beginning of each new stage.");
 
-            if (enabled.Value)
+            if (ModConfig.Get(enabled))
             {
                 LanguageAPI.Add("ITEM_EXTRALIFEVOID_PICKUP",
                     "Revive on death and <style=cIsVoid>corrupt items</style>. <style=cIsHealing>Regenerates each stage.</style>");
@@ -40,7 +40,7 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Void
         private static void OnStageStart(Stage stage)
         {
             // Inventory changes and transform notifications must originate on the server.
-            if (!enabled.Value || !NetworkServer.active || !Run.instance) return;
+            if (!ModConfig.Get(enabled) || !NetworkServer.active || !Run.instance) return;
 
             ItemDef original = DLC1Content.Items.ExtraLifeVoid;
             ItemDef consumed = DLC1Content.Items.ExtraLifeVoidConsumed;

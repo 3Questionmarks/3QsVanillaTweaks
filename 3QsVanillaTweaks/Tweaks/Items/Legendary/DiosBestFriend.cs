@@ -2,9 +2,9 @@ using BepInEx.Configuration;
 using R2API;
 using RoR2;
 using UnityEngine.Networking;
-using ModConfig = ThreeQsVanillaTweaks.Config.ConfigManager;
+using ModConfig = Config.ConfigManager;
 
-namespace ThreeQsVanillaTweaks.Tweaks.Items.Legendary
+namespace Tweaks.Items.Legendary
 {
     internal static class DiosBestFriend
     {
@@ -16,7 +16,7 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Legendary
             enabled = ModConfig.BindBool(Section, "Enabled", true,
                 "Restore consumed Dio's Best Friend stacks at the beginning of each new stage.");
 
-            if (enabled.Value)
+            if (ModConfig.Get(enabled))
             {
                 LanguageAPI.Add("ITEM_EXTRALIFE_PICKUP",
                     "Revive on death with <style=cIsUtility>temporary invulnerability</style>. <style=cIsHealing>Regenerates each stage.</style>");
@@ -40,7 +40,7 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Legendary
         private static void OnStageStart(Stage stage)
         {
             // Inventory changes and transform notifications must originate on the server.
-            if (!enabled.Value || !NetworkServer.active || !Run.instance) return;
+            if (!ModConfig.Get(enabled) || !NetworkServer.active || !Run.instance) return;
 
             ItemDef original = RoR2Content.Items.ExtraLife;
             ItemDef consumed = RoR2Content.Items.ExtraLifeConsumed;

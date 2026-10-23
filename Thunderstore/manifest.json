@@ -1,6 +1,6 @@
 {
   "name": "3QsVanillaTweaks",
-  "version_number": "0.0.1",
+  "version_number": "0.1.0",
   "website_url": "https://github.com/3Questionmarks/3QsVanillaTweaks",
   "description": "A configurable collection of small vanilla tweaks.",
   "dependencies": [

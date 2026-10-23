@@ -7,9 +7,10 @@ using MonoMod.Cil;
 using MonoMod.RuntimeDetour;
 using R2API;
 using RoR2;
-using ModConfig = ThreeQsVanillaTweaks.Config.ConfigManager;
+using ThreeQsVanillaTweaks;
+using ModConfig = Config.ConfigManager;
 
-namespace ThreeQsVanillaTweaks.Tweaks.Items.Uncommon
+namespace Tweaks.Items.Uncommon
 {
     internal static class RegeneratingScrap
     {
@@ -33,18 +34,19 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Uncommon
             // Register before the logbook/UI can cache the original description.
             UpdateDescription("ITEM_REGENERATINGSCRAP_DESC");
             UpdatePickupDescription();
+            ModConfig.EffectiveSettingsChanged += () => { UpdateDescription("ITEM_REGENERATINGSCRAP_DESC"); UpdatePickupDescription(); };
             RoR2Application.onLoad += Install;
         }
 
         private static bool Allows(ItemTier tier)
         {
-            if (!enabled.Value) return tier == ItemTier.Tier2;
+            if (!ModConfig.Get(enabled)) return tier == ItemTier.Tier2;
             switch (tier)
             {
-                case ItemTier.Tier1: return common.Value;
-                case ItemTier.Tier2: return uncommon.Value;
-                case ItemTier.Tier3: return legendary.Value;
-                case ItemTier.Boss: return boss.Value;
+                case ItemTier.Tier1: return ModConfig.Get(common);
+                case ItemTier.Tier2: return ModConfig.Get(uncommon);
+                case ItemTier.Tier3: return ModConfig.Get(legendary);
+                case ItemTier.Boss: return ModConfig.Get(boss);
                 default: return false;
             }
         }
@@ -140,8 +142,8 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Uncommon
             {
                 bool vanilla = original(costDef, context);
                 ItemTier tier = costDef.itemTier;
-                if (!enabled.Value) return vanilla;
-                if (tier == ItemTier.Tier2 && uncommon.Value) return vanilla;
+                if (!ModConfig.Get(enabled)) return vanilla;
+                if (tier == ItemTier.Tier2 && ModConfig.Get(uncommon)) return vanilla;
                 if (tier != ItemTier.Tier2 && !Allows(tier)) return vanilla;
 
                 CharacterBody body = context.activator ? context.activator.GetComponent<CharacterBody>() : null;
@@ -187,14 +189,14 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Uncommon
 
         private static void UpdateDescription(string token)
         {
-            if (!enabled.Value) return;
+            if (!ModConfig.Get(enabled)) return;
             ItemDef scrap = DLC1Content.Items.RegeneratingScrap;
             if (scrap == null) return;
             List<string> tiers = new List<string>();
-            if (common.Value) tiers.Add("<color=#FFFFFF>Common</color>");
-            if (uncommon.Value) tiers.Add("<color=#77FF66>Uncommon</color>");
-            if (legendary.Value) tiers.Add("<color=#FF5555>Legendary</color>");
-            if (boss.Value) tiers.Add("<color=#FFFF00>Boss</color>");
+            if (ModConfig.Get(common)) tiers.Add("<color=#FFFFFF>Common</color>");
+            if (ModConfig.Get(uncommon)) tiers.Add("<color=#77FF66>Uncommon</color>");
+            if (ModConfig.Get(legendary)) tiers.Add("<color=#FF5555>Legendary</color>");
+            if (ModConfig.Get(boss)) tiers.Add("<color=#FFFF00>Boss</color>");
             string description = tiers.Count == 0
                 ? "Cannot be used in 3D Printers. Regenerates at the start of each stage."
                 : "Prioritized when used with " + FormatList(tiers) + " 3D Printers. Can be used once per stage.";
@@ -203,12 +205,12 @@ namespace ThreeQsVanillaTweaks.Tweaks.Items.Uncommon
 
         private static void UpdatePickupDescription()
         {
-            if (!enabled.Value) return;
+            if (!ModConfig.Get(enabled)) return;
             List<string> tiers = new List<string>();
-            if (common.Value) tiers.Add("<color=#FFFFFF>Common</color>");
-            if (uncommon.Value) tiers.Add("<color=#77FF66>Uncommon</color>");
-            if (legendary.Value) tiers.Add("<color=#FF5555>Legendary</color>");
-            if (boss.Value) tiers.Add("<color=#FFFF00>Boss</color>");
+            if (ModConfig.Get(common)) tiers.Add("<color=#FFFFFF>Common</color>");
+            if (ModConfig.Get(uncommon)) tiers.Add("<color=#77FF66>Uncommon</color>");
+            if (ModConfig.Get(legendary)) tiers.Add("<color=#FF5555>Legendary</color>");
+            if (ModConfig.Get(boss)) tiers.Add("<color=#FFFF00>Boss</color>");
             string pickup = tiers.Count == 0
                 ? "Cannot be used in 3D Printers. <style=cIsUtility>Regenerates each stage.</style>"
                 : "Prioritized in " + FormatList(tiers) + " 3D Printers. <style=cIsUtility>Regenerates each stage.</style>";
