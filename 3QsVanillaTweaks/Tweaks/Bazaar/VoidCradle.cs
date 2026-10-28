@@ -28,7 +28,7 @@ namespace Tweaks.Bazaar
             __instance.StartCoroutine(BazaarSpawnHelper.SpawnNextFrame(__instance, () =>
             {
                 if (BazaarSpawnHelper.Roll(settings))
-                    BazaarSpawnHelper.Spawn(settings.Path, settings.Name, settings.Position, settings.Forward);
+                    BazaarSpawnHelper.Spawn(settings, settings.Path, settings.Name, settings.Position, settings.Forward);
             }));
         }
     }

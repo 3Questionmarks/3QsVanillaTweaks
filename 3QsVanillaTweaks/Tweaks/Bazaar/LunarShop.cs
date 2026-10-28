@@ -1,3 +1,4 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Globalization;
 using BepInEx.Configuration;
@@ -29,13 +30,13 @@ namespace Tweaks.Bazaar
 
         internal static void Init()
         {
-            enabled = ModConfig.BindBool(Section, "Enabled", true, "Enable Bazaar lunar shop tweaks.");
+            enabled = ModConfig.BindBool(Section, "Enabled", true, "Enable lunar shop tweaks.");
             replenishPurchased = ModConfig.BindBool(Section, "Refresh Purchased Lunar Slots", true,
                 "Allow rerolls to replenish Lunar Buds that have already been purchased.");
             purchaseLimit = ModConfig.Bind(Section, "Maximum Lunar Purchases Before Disabling Rerolls", 5,
                 "Successful Lunar Bud purchases per Bazaar visit. 0 disables rerolls entirely; -1 allows unlimited purchases before disabling rerolls.");
             formula = ModConfig.Bind(Section, "Reroll Price Formula", "x + y",
-                "Formula for the NEXT recycler price, where x is the current price, y is the reroll number (starting at 1), and z is the reroll number within this Bazaar. Operators: +, -, *, /, parentheses. Example: x * 2 for vanilla.");
+                "Formula for the NEXT recycler price, where x is the current price, y is the reroll number (starting at 1), and z is the reroll number within this Bazaar. Operators: +, -, *, /, parentheses.");
             resetY = ModConfig.BindBool(Section, "Reset Y Every Bazaar", true,
                 "If enabled, y resets at every Bazaar. z always resets; x is the current reroll price and resets to 1 for each Bazaar.");
 

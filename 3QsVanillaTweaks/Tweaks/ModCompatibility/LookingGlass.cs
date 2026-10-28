@@ -12,8 +12,21 @@ namespace Tweaks.ModCompatibility
     {
         private static bool warned;
 
+        internal static BepInEx.Configuration.ConfigEntry<bool> BindEnabled()
+        {
+            var entry = global::Config.ConfigManager.BindBool("Mod Compatibility - General", "LookingGlass Enabled", true,
+                "Show item and skill stats that match this mod's changes in LookingGlass.");
+            // BepInEx retains renamed keys as unbound entries unless explicitly removed.
+            var property = typeof(BepInEx.Configuration.ConfigFile).GetProperty("OrphanedEntries", BindingFlags.Instance | BindingFlags.NonPublic);
+            var orphaned = property?.GetValue(entry.ConfigFile, null) as System.Collections.Generic.Dictionary<BepInEx.Configuration.ConfigDefinition, string>;
+            orphaned?.Remove(new BepInEx.Configuration.ConfigDefinition("Mod Compatibility - LookingGlass", "Enabled"));
+            return entry;
+        }
+
         internal static void Init()
         {
+            var enabled = BindEnabled();
+            if (!global::Config.ConfigManager.Get(enabled)) return;
             Assembly assembly = AppDomain.CurrentDomain.GetAssemblies()
                 .FirstOrDefault(a => string.Equals(a.GetName().Name, "LookingGlass", StringComparison.OrdinalIgnoreCase));
             if (assembly == null)

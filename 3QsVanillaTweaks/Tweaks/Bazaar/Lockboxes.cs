@@ -49,10 +49,10 @@ namespace Tweaks.Bazaar
             for (int i = 0; i < count; i++)
             {
                 if (!BazaarSpawnHelper.Roll(settings)) continue;
-                bool isVoid = UnityEngine.Random.value * 100f < Mathf.Clamp(ModConfig.Get(voidChance), 0f, 100f);
+                bool isVoid = SpawnRequirements.AddressAllowed(VoidPath) && UnityEngine.Random.value * 100f < Mathf.Clamp(ModConfig.Get(voidChance), 0f, 100f);
                 Vector3 position = settings.Position + i * new Vector3(
                     ModConfig.Get(stepX), ModConfig.Get(stepY), ModConfig.Get(stepZ));
-                BazaarSpawnHelper.Spawn(isVoid ? VoidPath : NormalPath,
+                BazaarSpawnHelper.Spawn(settings, isVoid ? VoidPath : NormalPath,
                     "Lockbox " + (i + 1) + (isVoid ? " (Void)" : ""), position, settings.Forward);
             }
         }

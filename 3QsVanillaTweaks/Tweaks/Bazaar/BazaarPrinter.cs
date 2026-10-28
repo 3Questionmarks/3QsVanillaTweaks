@@ -25,6 +25,7 @@ namespace Tweaks.Bazaar
         };
         private static BazaarSpawnHelper.Settings settings;
         private static ConfigEntry<float>[] weights;
+        private static ConfigEntry<bool> spawnWithCommand;
         private static Stage lastStage;
 
         internal static void Init()
@@ -32,6 +33,8 @@ namespace Tweaks.Bazaar
             string section = "Bazaar - 05 Extra Interactables - 02 3D Printer";
             settings = BazaarSpawnHelper.Bind(section, "02 3D Printer", Paths[0],
                 75f, -69.6f, -24.4f, -30f, -0.9f, 0f, 0.2f);
+            spawnWithCommand = ModConfig.BindBool(section, "Spawn With Command", false,
+                "Allow the extra Bazaar printer to spawn while the Artifact of Command is enabled.");
             weights = new ConfigEntry<float>[Tiers.Length];
             for (int i = 0; i < weights.Length; i++)
                 weights[i] = ModConfig.Bind(section, Names[i] + " Weight (%)", Defaults[i],
@@ -48,21 +51,32 @@ namespace Tweaks.Bazaar
 
         private static void SpawnPrinter()
         {
+            if (SpawnRequirements.CommandActive && !ModConfig.Get(spawnWithCommand)) return;
             if (!BazaarSpawnHelper.Roll(settings)) return;
+            var eligibleWeights = new float[weights.Length];
+            for (int i = 0; i < weights.Length; i++)
+                if (SpawnRequirements.PrinterTierAvailable(Tiers[i]))
+                {
+                    float weight = ModConfig.Get(weights[i]);
+                    eligibleWeights[i] = float.IsNaN(weight) || float.IsInfinity(weight) ? 0f : Mathf.Max(0f, weight);
+                }
             float total = 0f;
-            for (int i = 0; i < weights.Length; i++) total += Mathf.Max(0f, ModConfig.Get(weights[i]));
-            if (total <= 0f) { Log.Warning("Bazaar 3D Printer: all rarity weights are zero."); return; }
+            for (int i = 0; i < weights.Length; i++) total += eligibleWeights[i];
+            if (total <= 0f) { Log.Warning("Bazaar 3D Printer: no enabled rarity has a positive weight and available items for this run."); return; }
             float roll = UnityEngine.Random.value * total;
-            int choice = weights.Length - 1;
+            int choice = -1;
             for (int i = 0; i < weights.Length; i++)
             {
-                roll -= Mathf.Max(0f, ModConfig.Get(weights[i]));
+                if (eligibleWeights[i] <= 0f) continue;
+                choice = i;
+                roll -= eligibleWeights[i];
                 if (roll < 0f) { choice = i; break; }
             }
+            if (choice < 0) return;
             ItemTier tier = Tiers[choice];
             string name = Names[choice];
             string path = choice < 4 ? Paths[choice] : Paths[0];
-            BazaarSpawnHelper.Spawn(path, "3D Printer (" + name + ")", settings.Position, settings.Forward, instance =>
+            BazaarSpawnHelper.Spawn(settings, path, "3D Printer (" + name + ")", settings.Position, settings.Forward, instance =>
             {
                 ShopTerminalBehavior terminal = instance.GetComponent<ShopTerminalBehavior>();
                 PurchaseInteraction purchase = instance.GetComponent<PurchaseInteraction>();

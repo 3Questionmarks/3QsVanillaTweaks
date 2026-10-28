@@ -180,7 +180,6 @@ namespace Tweaks.Items.Void
             entry.Emit(OpCodes.Ldarg_0);
             entry.Emit(OpCodes.Ldarg_1);
             entry.EmitDelegate<Action<HealthComponent, DamageInfo>>(ApplyVoidCrit);
-            Debug.Log("[3QsVanillaTweaks] Lost Seer's Lenses: vanilla execution disabled; Void Crit damage hook installed.");
         }
 
         private static void ApplyVoidCrit(HealthComponent victim, DamageInfo damage)

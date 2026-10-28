@@ -1,3 +1,4 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -28,6 +29,7 @@ namespace Tweaks.Bazaar
         private static ConfigEntry<float> forwardX;
         private static ConfigEntry<float> forwardY;
         private static ConfigEntry<float> forwardZ;
+        private static BazaarSpawnHelper.GroundSettings ground;
         private static Stage spawnedStage;
         private static GameObject prefab;
         private static bool warned;
@@ -51,6 +53,8 @@ namespace Tweaks.Bazaar
                 "Y component of the direction the cauldron faces.");
             forwardZ = ModConfig.Bind(Section, "Forward Z", -0.5f,
                 "Z component of the direction the cauldron faces.");
+
+            ground = BazaarSpawnHelper.BindGround(Section);
 
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Bazaar.CommonCauldron");
             harmony.Patch(AccessTools.Method(typeof(Stage), "Start"),
@@ -141,6 +145,8 @@ namespace Tweaks.Bazaar
 
         private static IEnumerator SpawnWhenReady(Stage stage)
         {
+            yield return null;
+            if (stage == null || !NetworkServer.active || !InBazaar()) yield break;
             try
             {
                 if (prefab == null)
@@ -150,12 +156,7 @@ namespace Tweaks.Bazaar
 
                 Vector3 position = new Vector3(ModConfig.Get(positionX), ModConfig.Get(positionY), ModConfig.Get(positionZ));
                 Vector3 forward = new Vector3(ModConfig.Get(forwardX), ModConfig.Get(forwardY), ModConfig.Get(forwardZ));
-                if (forward.sqrMagnitude < 0.0001f)
-                    forward = Vector3.right;
-                // Keep the cauldron upright even if an almost-vertical forward vector is entered.
-                if (Mathf.Abs(Vector3.Dot(forward.normalized, Vector3.up)) > 0.999f)
-                    forward = Vector3.right;
-                Quaternion rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
+                ground.GetPlacement("Common Cauldron", position, forward, out position, out Quaternion rotation);
                 GameObject instance = UnityEngine.Object.Instantiate(prefab, position, rotation);
                 instance.name = "3Qs_GreenToWhiteCauldron";
                 PurchaseInteraction purchase = instance.GetComponent<PurchaseInteraction>();

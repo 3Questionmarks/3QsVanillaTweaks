@@ -1,3 +1,4 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
@@ -28,9 +29,9 @@ namespace Tweaks.DebugStuff
 
         internal static void Init()
         {
-            logLocations = ModConfig.BindBool(Section, "Newt Altar - Log Candidate Positions", false,
+            logLocations = ModConfig.BindBool(Section, "Newt Altar - Log Candidate Positions", true,
                 "Log the locations of all Newt Altars found in the loaded stage, including inactive and permanently placed objects.");
-            showMarkers = ModConfig.BindBool(Section, "Newt Altar - Show Location Markers", false,
+            showMarkers = ModConfig.BindBool(Section, "Newt Altar - Show Location Markers", true,
                 "Show a lettered marker over every Newt Altar location found in the loaded stage.");
             diagnosticOnly = ModConfig.BindBool(Section, "Newt Altar - Disable Guarantees During Mapping", false,
                 "Temporarily disable configured Newt Altar guarantees during mapping.");

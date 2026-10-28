@@ -1,12 +1,13 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using BepInEx.Configuration;
 using HarmonyLib;
 using RoR2;
 using ThreeQsVanillaTweaks;
-using TMPro;
+using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
-using UnityEngine.SceneManagement;
 using ModConfig = Config.ConfigManager;
 
 namespace Tweaks.Bazaar
@@ -16,12 +17,11 @@ namespace Tweaks.Bazaar
     /// take one red item with priority given to green scrap, then red scrap,
     /// then green items, then red items.
     /// Existing vanilla payment code still chooses scrap before other items.
-    /// Also adds a custom world-space label showing the alternate cost.
+    /// Also shows both payments in the native price hologram and interaction prompt.
     /// </summary>
     internal static class LegendaryCauldron
     {
         private const string Section = "Bazaar - 03 Legendary Cauldron";
-        private const string LabelObjectName = "3QsLegendaryCauldronLabel";
         private static ConfigEntry<bool> enabled;
 
         internal static void Init()
@@ -38,59 +38,16 @@ namespace Tweaks.Bazaar
                 prefix: new HarmonyMethod(typeof(LegendaryCauldron), nameof(BeginPurchase)),
                 finalizer: new HarmonyMethod(typeof(LegendaryCauldron), nameof(EndPurchase)));
 
-            SceneManager.sceneLoaded += OnSceneLoaded;
+            AlternateCauldronCostDisplay.Register(Applies);
+            harmony.Patch(AccessTools.Method(typeof(PurchaseInteraction), "GetContextString", new[] { typeof(Interactor) }),
+                postfix: new HarmonyMethod(typeof(LegendaryCauldron), nameof(AfterContext)));
 
             Log.Info("Bazaar legendary cauldron alternate-payment tweak initialized.");
         }
 
-        private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        private static void AfterContext(PurchaseInteraction __instance, ref string __result)
         {
-            if (!ModConfig.Get(enabled)) return;
-            if (!string.Equals(scene.name, "bazaar", StringComparison.OrdinalIgnoreCase)) return;
-
-            RoR2Application.onNextUpdate += ApplyBazaarLabels;
-        }
-
-        private static void ApplyBazaarLabels()
-        {
-            foreach (PurchaseInteraction purchase in UnityEngine.Object.FindObjectsOfType<PurchaseInteraction>())
-            {
-                if (!Applies(purchase)) continue;
-                EnsureAlternateCostLabel(purchase);
-            }
-        }
-
-        private static void EnsureAlternateCostLabel(PurchaseInteraction purchase)
-        {
-            if (purchase == null) return;
-            Transform existing = purchase.transform.Find(LabelObjectName);
-            if (existing != null) return;
-
-            GameObject label = new GameObject(LabelObjectName);
-            label.transform.SetParent(purchase.transform, false);
-            label.transform.localPosition = new Vector3(0f, 5.25f, 0f);
-            label.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-            label.transform.localScale = Vector3.one * 0.22f;
-
-            TextMeshPro text = label.AddComponent<TextMeshPro>();
-            text.text = "<color=#ff4d4d>1 Red</color> <color=#e5e5e5>or</color> <color=#66ff66>5 Green</color>";
-            text.alignment = TextAlignmentOptions.Center;
-            text.fontSize = 12f;
-            text.enableWordWrapping = false;
-            text.outlineWidth = 0.18f;
-            text.outlineColor = Color.black;
-            text.color = Color.white;
-            text.sortingOrder = 10;
-
-            MeshRenderer renderer = label.GetComponent<MeshRenderer>();
-            if (renderer != null)
-            {
-                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                renderer.receiveShadows = false;
-            }
-
-            // The label size is set by transform.localScale above.
-            label.AddComponent<Billboard>();
+            if (Applies(__instance)) __result += " (" + AlternateCauldronCostDisplay.RedOption() + ")";
         }
 
         private static bool Applies(PurchaseInteraction purchase)
@@ -185,6 +142,64 @@ namespace Tweaks.Bazaar
                 __instance.cost = 5;
             }
             return __exception;
+        }
+    }
+
+    internal static class AlternateCauldronCostDisplay
+    {
+        private static readonly List<Func<PurchaseInteraction, bool>> rules = new List<Func<PurchaseInteraction, bool>>();
+        private static bool installed;
+        private sealed class PriceSource : MonoBehaviour { internal PurchaseInteraction Purchase; }
+
+        internal static void Register(Func<PurchaseInteraction, bool> rule)
+        {
+            rules.Add(rule);
+            if (installed) return;
+            installed = true;
+            R2API.LanguageAPI.Add("3QS_CAULDRON_COST_OR", "or");
+            var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.AlternateCauldronCostDisplay");
+            harmony.Patch(AccessTools.Method(typeof(PurchaseInteraction), "UpdateHologramContent"),
+                postfix: new HarmonyMethod(typeof(AlternateCauldronCostDisplay), nameof(AfterHologram)));
+            harmony.Patch(AccessTools.Method(typeof(CostHologramContent), "FixedUpdate"),
+                prefix: new HarmonyMethod(typeof(AlternateCauldronCostDisplay), nameof(BeforePriceUpdate)));
+        }
+
+        private static bool Applies(PurchaseInteraction purchase)
+        {
+            if (!purchase) return false;
+            foreach (var rule in rules) if (rule(purchase)) return true;
+            return false;
+        }
+
+        internal static string RedOption()
+        {
+            var text = new StringBuilder(Language.GetString("3QS_CAULDRON_COST_OR") + " ");
+            CostTypeCatalog.GetCostTypeDef(CostTypeIndex.RedItem).BuildCostStringStyled(1, text, false, true);
+            return text.ToString();
+        }
+
+        private static void AfterHologram(PurchaseInteraction __instance, GameObject hologramContentObject)
+        {
+            if (!hologramContentObject) return;
+            PriceSource source = hologramContentObject.GetComponent<PriceSource>();
+            if (!source && Applies(__instance)) source = hologramContentObject.AddComponent<PriceSource>();
+            if (source) source.Purchase = __instance;
+        }
+
+        private static bool BeforePriceUpdate(CostHologramContent __instance, ref int ___oldDisplayValue)
+        {
+            PriceSource source = __instance.GetComponent<PriceSource>();
+            if (!source || !Applies(source.Purchase) || !__instance.targetTextMesh) return true;
+            var text = new StringBuilder();
+            CostTypeCatalog.GetCostTypeDef(CostTypeIndex.GreenItem)
+                .BuildCostStringStyled(source.Purchase.cost, text, true, true);
+            text.Append("\n").Append(Language.GetString("3QS_CAULDRON_COST_OR")).Append(" ");
+            CostTypeCatalog.GetCostTypeDef(CostTypeIndex.RedItem).BuildCostStringStyled(1, text, true, true);
+            __instance.targetTextMesh.text = text.ToString();
+            __instance.targetTextMesh.color = Color.white;
+            // Force vanilla to restore its own label if the alternative is disabled.
+            ___oldDisplayValue = int.MinValue;
+            return false;
         }
     }
 }

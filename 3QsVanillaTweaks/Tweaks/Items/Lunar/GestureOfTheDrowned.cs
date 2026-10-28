@@ -1,3 +1,4 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using BepInEx.Configuration;
 using HarmonyLib;
@@ -24,11 +25,11 @@ namespace Tweaks.Items.Lunar
         {
             enabled = ModConfig.BindBool(Section, "Enabled", true, "Enable configurable Gesture effects.");
             automaticUse = ModConfig.BindBool(Section, "Automatically Use Equipment", true,
-                "Automatically activate ready equipment outside excluded stages (vanilla: true).");
+                "Automatically activate ready equipment outside excluded stages.");
             firstCooldown = ModConfig.Bind(Section, "First Stack Cooldown Multiplier", 0.5f,
-                "Cooldown scale of the first Gesture (vanilla: 0.5).");
+                "Cooldown scale of the first Gesture.");
             extraCooldown = ModConfig.Bind(Section, "Additional Stack Cooldown Multiplier", 0.85f,
-                "Additional multiplicative cooldown scale for each extra Gesture (vanilla: 0.85).");
+                "Additional multiplicative cooldown scale for each extra Gesture.");
 
             // Keep the existing config keys so users do not lose their settings.
             // Despite the legacy names, these suppress automatic use, NOT cooldown progression.

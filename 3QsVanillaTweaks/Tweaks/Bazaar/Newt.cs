@@ -1,3 +1,4 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Linq;
 using System.Collections;
@@ -55,13 +56,13 @@ namespace Tweaks.Bazaar
 
         internal static void Init()
         {
-            enabled = ModConfig.BindBool(Section, "Enabled", true, "Enable the Newt/Bazaar tweaks.");
+            enabled = ModConfig.BindBool(Section, "Enabled", true, "Enable Newt Tweaks.");
             preventKick = ModConfig.BindBool(Section, "Newt Never Kicks Players Out", true,
                 "Prevents Newt from expelling players after taking damage.");
             karmaOnKill = ModConfig.BindBool(Section, "Award Bazaar Karma When Newt Dies", true,
-                "Relocates the Bazaar expulsion karma trigger from angering Newt to defeating him.");
+                "Changed the Bazaar expulsion karma trigger from angering Newt to killing him.");
             karmaOncePerVisit = ModConfig.BindBool(Section, "Karma Once Per Bazaar Visit", true,
-                "When enabled, defeating Newt can award the Bazaar karma trigger only once per Bazaar visit.");
+                "When enabled, Newt can award the karma trigger only once per Bazaar visit.");
 
             health = ModConfig.Bind(Section, "Base Health", 2000000f,
                 "Maximum health at level 1. Default: 2000000 (4x vanilla). Vanilla: 500000.");

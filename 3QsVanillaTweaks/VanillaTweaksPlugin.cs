@@ -8,12 +8,14 @@ namespace ThreeQsVanillaTweaks
 {
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
     [BepInDependency(R2API.LanguageAPI.PluginGUID)]
+    [BepInDependency(R2API.PrefabAPI.PluginGUID)]
+    [BepInDependency("Viliger.RegisterCommandChest", BepInDependency.DependencyFlags.SoftDependency)]
     public class VanillaTweaksPlugin : BaseUnityPlugin
     {
         public const string PluginAuthor = "3Questionmarks";
         public const string PluginName = "3QsVanillaTweaks";
         public const string PluginGUID = PluginAuthor + "." + PluginName;
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.3.0";
 
         private void Awake()
         {
@@ -23,6 +25,11 @@ namespace ThreeQsVanillaTweaks
             InitializeTweaks(false);
 
             Log.Info("3QsVanillaTweaks initialized (artifact registration scheduled for Start).");
+        }
+
+        private void Update()
+        {
+            global::Config.ConfigManager.Tick();
         }
 
         // BepInEx has not finished registering this plugin's metadata while Awake runs.
@@ -91,6 +98,12 @@ namespace ThreeQsVanillaTweaks
 
                 if (initMethod == null || initMethod.ReturnType != typeof(void))
                     continue;
+
+                if (!global::Config.ConfigManager.ModuleEnabled(type))
+                {
+                    Log.Info("Module disabled; skipped tweak: " + type.Name);
+                    continue;
+                }
 
                 try
                 {

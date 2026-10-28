@@ -1,3 +1,4 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -19,9 +20,40 @@ namespace Tweaks.Bazaar
         {
             internal string Name, Path;
             internal ConfigEntry<bool> Enabled;
+            internal GroundSettings Ground;
             internal ConfigEntry<float> Chance, X, Y, Z, FX, FY, FZ;
             internal Vector3 Position => new Vector3(ModConfig.Get(X), ModConfig.Get(Y), ModConfig.Get(Z));
             internal Vector3 Forward => new Vector3(ModConfig.Get(FX), ModConfig.Get(FY), ModConfig.Get(FZ));
+        }
+
+        internal sealed class GroundSettings
+        {
+            internal ConfigEntry<bool> SnapToGround, AlignToGround;
+            internal ConfigEntry<float> HeightOffset, SearchDistance;
+
+            internal void GetPlacement(string name, Vector3 configuredPosition, Vector3 facing,
+                out Vector3 position, out Quaternion rotation)
+            {
+                Tweaks.Stages.StageFeatureSpawnHelper.GetPlacement(name, configuredPosition, facing,
+                    ModConfig.Get(SnapToGround), ModConfig.Get(AlignToGround),
+                    ModConfig.Get(HeightOffset), ModConfig.Get(SearchDistance), out position, out rotation);
+            }
+        }
+
+        internal static GroundSettings BindGround(string section)
+        {
+            return new GroundSettings
+            {
+                SnapToGround = ModConfig.BindBool(section, "Snap To Ground", true,
+                    "Move the interactable to the ground nearest Position Y. Each offset lockbox snaps independently."),
+                AlignToGround = ModConfig.BindBool(section, "Align To Ground", true,
+                    "Tilt the interactable to match the ground. Disable to keep it upright."),
+                HeightOffset = ModConfig.Bind(section, "Height Offset", 0f,
+                    "World-space vertical offset added after snapping, or to Position Y if snapping is disabled."),
+                SearchDistance = ModConfig.Bind(section, "Ground Search Distance", 12f,
+                    new ConfigDescription("Search this far above and below Position Y; use the nearest walkable surface.",
+                        new AcceptableValueRange<float>(0.1f, 100f)))
+            };
         }
 
         private static readonly Dictionary<string, GameObject> Prefabs = new Dictionary<string, GameObject>();
@@ -38,6 +70,7 @@ namespace Tweaks.Bazaar
             s.FX = ModConfig.Bind(section, "Forward X", fx, "World-space facing vector X.");
             s.FY = ModConfig.Bind(section, "Forward Y", fy, "World-space facing vector Y.");
             s.FZ = ModConfig.Bind(section, "Forward Z", fz, "World-space facing vector Z.");
+            s.Ground = BindGround(section);
             return s;
         }
 
@@ -64,9 +97,10 @@ namespace Tweaks.Bazaar
             if (stage != null && NetworkServer.active && InBazaar()) action();
         }
 
-        internal static GameObject Spawn(string path, string name, Vector3 position, Vector3 facing,
+        internal static GameObject Spawn(Settings settings, string path, string name, Vector3 position, Vector3 facing,
             Action<GameObject> configure = null)
         {
+            if (!NetworkServer.active || !SpawnRequirements.AddressAllowed(path)) return null;
             GameObject instance = null;
             try
             {
@@ -77,10 +111,9 @@ namespace Tweaks.Bazaar
                     if (prefab == null) throw new InvalidOperationException("Prefab not found: " + path);
                     Prefabs[path] = prefab;
                 }
-                facing.y = 0f;
-                if (facing.sqrMagnitude < 0.0001f) facing = Vector3.forward;
-                instance = UnityEngine.Object.Instantiate(prefab, position,
-                    Quaternion.LookRotation(facing.normalized, Vector3.up));
+                if (!Tweaks.Stages.StageFeatureSpawnHelper.PrefabAllowed(prefab, path)) return null;
+                settings.Ground.GetPlacement(name, position, facing, out position, out Quaternion rotation);
+                instance = UnityEngine.Object.Instantiate(prefab, position, rotation);
                 instance.name = "3Qs_Bazaar_" + name;
                 configure?.Invoke(instance);
                 NetworkServer.Spawn(instance);

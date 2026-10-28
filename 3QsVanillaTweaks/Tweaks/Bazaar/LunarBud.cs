@@ -15,7 +15,7 @@ namespace Tweaks.Bazaar
         private static Stage lastStage;
         internal static void Init()
         {
-            settings = BazaarSpawnHelper.Bind("Bazaar - 05 Extra Interactables - 06 Lunar Bud", "06 Lunar Bud",
+            settings = BazaarSpawnHelper.Bind("Bazaar - 05 Extra Interactables - 06 Lunar Pod", "06 Lunar Pod",
                 "RoR2/Base/LunarChest/LunarChest.prefab", 80f, -12.1f, 17.2f, -59.9f, -0.89f, 0f, 0.45f);
             BazaarSpawnHelper.Register(typeof(LunarBud), "LunarBud", nameof(AfterStageStart));
         }
@@ -26,7 +26,7 @@ namespace Tweaks.Bazaar
             __instance.StartCoroutine(BazaarSpawnHelper.SpawnNextFrame(__instance, () =>
             {
                 if (!BazaarSpawnHelper.Roll(settings)) return;
-                BazaarSpawnHelper.Spawn(settings.Path, settings.Name, settings.Position, settings.Forward, instance =>
+                BazaarSpawnHelper.Spawn(settings, settings.Path, settings.Name, settings.Position, settings.Forward, instance =>
                 {
                     // Stage Lunar Pod: closed, unrevealed reward until purchased.
                     // Unlike the Bazaar LunarShopTerminal prefab, LunarChest handles

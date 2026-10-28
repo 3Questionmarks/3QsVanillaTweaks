@@ -1,3 +1,4 @@
+using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -44,14 +45,14 @@ namespace Tweaks.RoRArtifacts
 
         internal static void Init()
         {
-            startingCoins = ModConfig.File.Bind(Section, "Starting Lunar Coins", 5,
+            startingCoins = ModConfig.Bind(Section, "Starting Lunar Coins", 5,
                 "Temporary Lunar Coins each player receives at the beginning of a run with the Artifact enabled. Your saved coins are left untouched.");
-            dropMultiplier = ModConfig.File.Bind(Section, "Lunar Coin Drop Rate Multiplier", 5f,
+            dropMultiplier = ModConfig.Bind(Section, "Lunar Coin Drop Rate Multiplier", 5f,
                 "Multiplier to the configured base Lunar Coin drop chance (5 means five times normal). Successful-drop reduction is controlled separately in Other - Lunar Coins.");
 
-            earnPermanentCoins = ModConfig.File.Bind(Section, "Earn Permanent Coins From Pickups", true,
+            earnPermanentCoins = ModConfig.Bind(Section, "Earn Permanent Coins From Pickups", true,
                 "While the Artifact is active, earn one permanent Lunar Coin for every N world Lunar Coins collected. With Shared Lunar Coins enabled, each player counts their own awarded coins.");
-            permanentCoinInterval = ModConfig.File.Bind(Section, "Pickups Per Permanent Coin", 0,
+            permanentCoinInterval = ModConfig.Bind(Section, "Pickups Per Permanent Coin", 0,
                 "World Lunar Coins needed to earn one permanent coin. 0 means round the drop-rate multiplier UP (5x = 5 coins). Any positive value overrides it.");
 
             artifact = ScriptableObject.CreateInstance<ArtifactDef>();

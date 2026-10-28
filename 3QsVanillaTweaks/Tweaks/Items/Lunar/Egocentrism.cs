@@ -58,29 +58,29 @@ namespace Tweaks.Items.Lunar
             enabled = ModConfig.Bind(Section, "Enabled", true,
                 "Enable custom Egocentrism consumption priority, permissions, and timing.");
             interval = ModConfig.Bind(Section, "Consumption Interval", 120f,
-                new ConfigDescription("Seconds between consumptions for one Egocentrism. Supports decimals.",
+                new ConfigDescription("Seconds between consumptions for one Egocentrism.",
                     new AcceptableValueRange<float>(1f, 100000f)));
-            perStack = ModConfig.Bind(Section, "Interval Change Per Stack", -1f,
-                "Seconds added for each additional Egocentrism. Negative is faster. Supports decimals.");
+            perStack = ModConfig.Bind(Section, "Interval Change Per Stack", -2f,
+                "Seconds added for each additional Egocentrism. Negative is faster.");
             minimum = ModConfig.Bind(Section, "Minimum Consumption Interval", 10f,
                 new ConfigDescription("Minimum seconds between consumptions, regardless of stacks.",
                     new AcceptableValueRange<float>(1f, 100000f)));
             orbBaseDamage = ModConfig.Bind(Section, "Orb Base Damage (%)", 360f,
-                "Orb damage as a percentage of character damage, with one Egocentrism. Vanilla: 360%.");
+                "Orb damage as a percentage of character damage, with one Egocentrism. Vanilla: 360.");
             orbDamagePerStack = ModConfig.Bind(Section, "Orb Damage Per Stack (%)", 0f,
-                "Additional percentage points of orb damage per Egocentrism after the first. Vanilla: 0%.");
+                "Additional percentage points of orb damage per Egocentrism after the first. Vanilla: 0.");
             orbSpawnTime = ModConfig.Bind(Section, "Orb Spawn Time", 3f,
-                new ConfigDescription("Seconds between spawning orbiting bombs at one stack. Vanilla: 3 seconds.",
+                new ConfigDescription("Seconds between spawning orbiting bombs at one stack. Vanilla: 3.",
                     new AcceptableValueRange<float>(0.01f, 100000f)));
             orbSpawnRatePerStack = ModConfig.Bind(Section, "Orb Spawn Time Scaling Per Stack (%)", 100f,
-                new ConfigDescription("Percent increase in orb spawn RATE per extra stack. 100% gives vanilla 3 / stack count; 0% keeps a fixed interval. Formula: spawn time / (1 + extra stacks * percent / 100).",
+                new ConfigDescription("Percent increase in orb spawn Rate per extra stack. 100% gives vanilla 3 / stack count; 0% keeps a fixed interval. Formula: spawn time / (1 + extra stacks * percent / 100).",
                     new AcceptableValueRange<float>(0f, 100000f)));
             pauseConsumption = ModConfig.Bind(Section, "Pause Consumption When Run Timer Paused", true,
                 "Stop advancing the item-consumption timer when the run stopwatch is paused (such as in the Bazaar).");
             priority = ModConfig.Bind(Section, "Consumption Priority", DefaultOrder,
                 "Comma-separated categories, highest priority first. Valid entries (case-insensitive): " +
                 ValidEntries + ". Unlisted categories are considered only by Other Items. " +
-                "ANY invalid or duplicate entry reverts the ENTIRE list to: " + DefaultOrder + ".");
+                "Invalid or duplicate entry reverts the list to default.");
 
             AddPermission("White Scrap", true);
             AddPermission("Green Scrap", true);

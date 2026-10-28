@@ -31,7 +31,7 @@ namespace Tweaks.Bazaar
             enabled = ModConfig.BindBool(Section, "Enabled", true,
                 "Limit equipment recharge time to the configured duration in the Bazaar Between Time.");
             cooldownSeconds = ModConfig.Bind(Section, "Equipment Cooldown (Seconds)", 1f,
-                "Maximum equipment recharge duration while in the Bazaar (default: 1 second). " +
+                "Maximum equipment recharge duration while in the Bazaar. " +
                 "Only shortens cooldowns; existing reductions can make them faster.");
 
             computationalExchangeEnabled = ModConfig.BindBool(Section, "Enable in Computational Exchange", true,
@@ -92,18 +92,25 @@ namespace Tweaks.Bazaar
         private static void PatchExplicitCooldownOverride(ILContext il)
         {
             var c = new ILCursor(il);
-            // A few equipment behaviours explicitly override their cooldown.
-            // Limit those values too, after the nullable cooldown is unwrapped.
+
+            // Only modify a nullable float cooldown, never another nullable type.
             if (c.TryGotoNext(MoveType.After,
-                    x => x.OpCode == OpCodes.Call && x.Operand is MethodReference method &&
-                         method.Name == "get_Value" && method.DeclaringType.FullName.Contains("Nullable")))
+                    x => x.OpCode == OpCodes.Call &&
+                         x.Operand is MethodReference method &&
+                         method.Name == "get_Value" &&
+                         method.DeclaringType is GenericInstanceType nullable &&
+                         nullable.ElementType.FullName == "System.Nullable`1" &&
+                         nullable.GenericArguments.Count == 1 &&
+                         nullable.GenericArguments[0].MetadataType == MetadataType.Single))
             {
                 c.EmitDelegate<Func<float, float>>(LimitCooldown);
-                Debug.Log("[3QsVanillaTweaks] Bazaar equipment: override recharge hook installed.");
+                Debug.Log(
+                    "[3QsVanillaTweaks] Bazaar equipment: override recharge hook installed.");
             }
             else
             {
-                Debug.LogWarning("[3QsVanillaTweaks] Bazaar equipment: override recharge pattern not found.");
+                Debug.LogWarning(
+                    "[3QsVanillaTweaks] Bazaar equipment: override recharge pattern not found.");
             }
         }
     }

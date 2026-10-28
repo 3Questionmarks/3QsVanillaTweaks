@@ -20,7 +20,7 @@ namespace Tweaks.Items.Legendary
         internal static void Init()
         {
             enabled = ModConfig.Bind(Section, "Enabled", true,
-                "Give Laser Scope additional critical strike chance without changing its original critical damage bonus.");
+                "Give Laser Scope additional critical strike chance.");
             baseCritChance = ModConfig.Bind(Section, "Base Crit Chance", 10f,
                 "Percentage points of critical strike chance granted by the first Laser Scope.");
             critChancePerStack = ModConfig.Bind(Section, "Crit Chance Per Stack", 0f,

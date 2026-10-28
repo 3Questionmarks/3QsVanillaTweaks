@@ -37,8 +37,7 @@ namespace Tweaks.Stages
         {
             mode = ModConfig.Bind(Section, "Spawn Mode", SpawnMode.OneSpecific,
                 "Vanilla: never modify Newt Altar spawns. At Least 1: ensure one altar is active if none spawned. " +
-                "1 Specific: ensure the stage's selected letter is active while leaving other altar locations to vanilla. " +
-                "Dropdown values: Vanilla, AtLeast1, OneSpecific.");
+                "1 Specific: ensure the stage's selected letter is active while leaving other altar locations to vanilla. ");
 
             permanentChance = ModConfig.Bind(Section, "Extra Permanent Altar Chance", 0.25f,
                 "Chance (0.0 to 1.0) to keep an additional, vanilla-permanent altar when OneSpecific guarantees a different position. Does not affect the preferred altar or ordinary vanilla-random altars.");
