@@ -41,8 +41,8 @@
 
 - **Bouncing Grenades:** charges up to 15 grenades. (Up from 8)
 - **Pressure Mines:** arms in 3 seconds and deals 1500% armed damage (Up from 900%).
-- **Bubble Shield:** has a 30-second cooldown (Up from 25s), lasts 25 seconds (up from 15s) and allows up to 3 active shields (up from 1). Enemies are now pushed out of the sheilds area when it is deployed, and standing in the shield grants 100 armour, 10 health regeneration, and 15% attack speed.
-- **Thermal Harpoons:** has 4 stocks, deals 700% damage and distributes targets evenly instead of concentrating them on one target. The Missile now take 0.2 seconds to lock onto a target and are do not auto-lock onto a target that enters the targeting sight immediatly.
+- **Bubble Shield:** has a 30-second cooldown (Up from 25s), lasts 25 seconds (up from 15s) and allows up to 3 active shields (up from 1). Enemies are pushed out of the shield's area when it deploys. Allies inside, including turrets and drones, gain 100 armour, 10 health regeneration per second and 15% attack speed. Overlapping shields do not stack.
+- **Thermal Harpoons:** has 4 stocks, deals 700% damage and distributes targets evenly instead of concentrating them on one target. Missiles take 0.2 seconds to lock onto a target rather than locking immediately when it enters the sight.
 - **TR12 Gauss Auto-Turret:** gains an 80-metre targeting range and 200-metre bullet range.
 - **TR58 Carbonizer Turret:** always sprints, locks its aim to targets more reliably and gains increased targeting range.
 
@@ -68,7 +68,7 @@
 - **Natural Toxins:** now directly causes all damage done to inflict weaken 50% of the time. Skills that used to weaken, no longer do.
 - Health costs no longer cause permanent damage in Eclipse 8.
 - **Directive Inject:** all 3 shots heal; each deals 100% damage and heals for 40% of damage dealt. (Up from 80% damage and a 60% heal on the final shot only.)
-- **Directive Disperse:** cooldown is 4.5 seconds. (Down from 5.5s) (Still weakens enemies directly since it does't do damage)
+- **Directive Disperse:** cooldown is 4.5 seconds. (Down from 5.5s) (Still weakens enemies directly since it doesn't do damage)
 - **Bramble Volley:** heals based on enemies' maximum health rather than REX's.
 - **Proliferation:** flowers now inherit items. Flower teleportation has a 5.5-second cooldown, costs the flower 30% maximum health and heals REX for 10% maximum health. (instead of killing the flower and healing 20%)
 - **DIRECTIVE: Harvest:** deals 600% damage (up from 330%).
@@ -104,10 +104,11 @@
 
 - **Magnetic Accelerator:** grants 2% extra critical damage per 1% critical chance (up from 1%).
 - **XQR Smart Round System:** projectiles travel 50% faster and no longer push Railgunner backwards while grounded.
-- **Backup Magazine:** grants an extra shot per second to Marksman; M99's perfect-reload bonus applies to every shot before the next reload instead of only the first.
-- **Concussion Device:** now also does 50% damage.
+- **HH44 Marksman:** each Backup Magazine grants 25% extra shot damage. Vanilla gives Marksman no benefit from Backup Magazines.
+- **M99 Sniper:** the perfect-reload bonus applies to every shot before the next reload instead of only the first.
+- **Concussion Device:** deals 50% damage to enemies, uses Sweet Spot falloff and has a 0.1 proc coefficient. It cannot damage Railgunner by default; its launch force is preserved.
 - **Polar Field Device:** now also weakens enemies, and applies Frost every second.
-- **Cryocharge:** can execute enemies brought below the frozen execution threshold immediately, rather than requiring a follow up shot to do so.
+- **Cryocharge:** can execute enemies brought below the frozen execution threshold immediately, rather than requiring a follow-up shot to do so.
 
 # Void Fiend
 

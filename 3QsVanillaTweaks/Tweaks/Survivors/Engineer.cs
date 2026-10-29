@@ -15,6 +15,8 @@ using RoR2.Skills;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.Networking;
+using UnityEngine.ResourceManagement.AsyncOperations;
+using RoR2.Audio;
 using C = Config.ConfigManager;
 using S = Tweaks.Survivors.SurvivorSettings;
 
@@ -72,6 +74,12 @@ namespace Tweaks.Survivors
         private static readonly HashSet<BubbleSupport> bubbles = new HashSet<BubbleSupport>();
         private static readonly HashSet<CharacterBody> shieldRecipients = new HashSet<CharacterBody>();
         private static float nextShieldScan;
+        private static AsyncOperationHandle<GameObject> shieldEndEffectHandle;
+        private static GameObject shieldEndEffect;
+        private static bool shuttingDown, warnedWalkerCallback;
+        private static readonly ConditionalWeakTable<EntityState, WalkerRuntime> walkerRuntime = new ConditionalWeakTable<EntityState, WalkerRuntime>();
+        private sealed class WalkerRuntime { internal bool Warned; }
+
         private static PropertyInfo aimConfirmation;
         [ThreadStatic] private static EntityState activeState;
         private static Type State(string suffix) => typeof(EntityState).Assembly.GetType("EntityStates.Engi" + (suffix.StartsWith("Turret.", StringComparison.Ordinal) ? "" : ".") + suffix);
@@ -115,6 +123,12 @@ namespace Tweaks.Survivors
             {
                 var loader = new GameObject("3QsEngineerContent"); UnityEngine.Object.DontDestroyOnLoad(loader); loader.AddComponent<ContentLoader>();
             }
+            Application.quitting += () => shuttingDown = true;
+            RoR2Application.onShutDown += () =>
+            {
+                shuttingDown = true;
+                if (shieldEndEffectHandle.IsValid()) Addressables.Release(shieldEndEffectHandle);
+            };
             RoR2Application.onLoad += Load;
         }
         private sealed class ContentLoader : MonoBehaviour
@@ -127,8 +141,6 @@ namespace Tweaks.Survivors
                     shieldSupportBuff.name = "3QS_ENGINEER_SHIELD_SUPPORT";
                     shieldSupportBuff.canStack = false; shieldSupportBuff.isDebuff = false;
                     shieldSupportBuff.buffColor = new Color(0.35f, 0.7f, 1f);
-                    try { shieldSupportBuff.iconSprite = Addressables.LoadAssetAsync<BuffDef>("RoR2/Base/Engi/bdEngiShield.asset").WaitForCompletion().iconSprite; }
-                    catch (Exception error) { ThreeQsVanillaTweaks.Log.Warning("Bubble Shield buff icon unavailable: " + error.Message); }
                     R2API.ContentAddition.AddBuffDef(shieldSupportBuff);
                 }
                 if (switches[Names[7]].Value)
@@ -179,7 +191,15 @@ namespace Tweaks.Survivors
                 if (profiles.ContainsKey(3)) { HookState("SpiderMine.ChaseTarget", true); HookState("SpiderMine.Detonate"); }
                 if (profiles.ContainsKey(4))
                 {
+                    // Registered onLoad, after LookingGlass installs its buff tooltip hook.
+                    On.RoR2.UI.BuffIcon.UpdateIcon += UpdateShieldBuffTooltip;
                     HookState("EngiBubbleShield.Deployed", true);
+                    // The native OnExit resolves a scene-scoped async reference, which can
+                    // already be unloaded when a shield is destroyed during stage cleanup.
+                    LoadShieldEndEffect();
+                    if (shieldSupportBuff && RoR2Content.Buffs.SmallArmorBoost)
+                        shieldSupportBuff.iconSprite = RoR2Content.Buffs.SmallArmorBoost.iconSprite;
+                    Patch(State("EngiBubbleShield.Deployed"), "OnExit", nameof(BeforeShieldExit));
                     Patch(typeof(CharacterBody), "RecalculateStats", postfix: nameof(AfterShieldStats));
                 }
                 if (profiles.ContainsKey(5))
@@ -195,6 +215,8 @@ namespace Tweaks.Survivors
                 if (profiles.ContainsKey(7))
                 {
                     HookState("Turret.EngiTurretWeapon.FireBeam", true);
+                    Patch(State("Turret.EngiTurretWeapon.FireBeam"), "FixedUpdate", nameof(BeforeWalkerTick));
+                    Patch(State("Turret.EngiTurretWeapon.FireBeam"), "FireBullet", nameof(BeforeWalkerBullet));
                     aimConfirmation = AccessTools.Property(typeof(RoR2.CharacterAI.BaseAI), "hasAimConfirmation");
                     Patch(typeof(RoR2.CharacterAI.BaseAI), "UpdateBodyAim", postfix: nameof(AfterTurretAim));
                     Patch(State("Turret.EngiTurretWeapon.FireBeam"), "GetLaserRay", postfix: nameof(AfterLaserRay));
@@ -507,6 +529,7 @@ namespace Tweaks.Survivors
         }
         private static Exception EndScope(Scope __state, Exception __exception)
         {
+            if (__state == null) return __exception;
             for (int i = __state.Values.Count - 1; i >= 0; i--) __state.Values[i].Field.SetValue(null, __state.Values[i].Value);
             activeState = __state.Previous; return __exception;
         }
@@ -535,6 +558,143 @@ namespace Tweaks.Survivors
             float duration = C.Get(firingTime) / Math.Max(0.01f, Body(__instance).attackSpeed);
             S.Write(__instance, "duration", duration);
             if (count >= max && S.Value(__instance, "fixedAge") >= duration && S.Read(__instance, "isAuthority") is bool authority && authority) __instance.outer.SetNextStateToMain();
+        }
+        private sealed class ShieldTooltip : MonoBehaviour
+        {
+            internal RoR2.UI.TooltipProvider Provider;
+            internal bool Applied, Created;
+            internal string TitleToken, BodyToken, Title, BodyText;
+            internal bool WasEnabled, Raycast;
+            internal UnityEngine.UI.Image Image;
+            internal void Restore()
+            {
+                if (!Applied) return;
+                if (Provider)
+                {
+                    Provider.titleToken = TitleToken; Provider.bodyToken = BodyToken;
+                    Provider.overrideTitleText = Title; Provider.overrideBodyText = BodyText;
+                    Provider.enabled = Created ? false : WasEnabled;
+                }
+                if (Image) Image.raycastTarget = Raycast;
+                Applied = false;
+            }
+            private void OnDisable() => Restore();
+        }
+        private static void UpdateShieldBuffTooltip(On.RoR2.UI.BuffIcon.orig_UpdateIcon orig, RoR2.UI.BuffIcon self)
+        {
+            ShieldTooltip marker = self.GetComponent<ShieldTooltip>();
+            // Restore before the other tooltip provider handles a different buff.
+            if (marker && self.buffDef != shieldSupportBuff) marker.Restore();
+            orig(self);
+            if (!shieldSupportBuff || self.buffDef != shieldSupportBuff) return;
+            if (!marker) marker = self.gameObject.AddComponent<ShieldTooltip>();
+            var tooltip = self.GetComponent<RoR2.UI.TooltipProvider>();
+            if (!tooltip)
+            {
+                tooltip = self.gameObject.AddComponent<RoR2.UI.TooltipProvider>();
+                marker.Created = true;
+            }
+            if (!marker.Applied)
+            {
+                marker.Provider = tooltip; marker.TitleToken = tooltip.titleToken; marker.BodyToken = tooltip.bodyToken;
+                marker.Title = tooltip.overrideTitleText; marker.BodyText = tooltip.overrideBodyText;
+                marker.WasEnabled = tooltip.enabled; marker.Image = self.iconImage;
+                marker.Raycast = self.iconImage && self.iconImage.raycastTarget; marker.Applied = true;
+            }
+            tooltip.titleToken = ""; tooltip.bodyToken = "";
+            tooltip.overrideTitleText = "Bubble Shield";
+            tooltip.overrideBodyText = "While inside an allied Bubble Shield, gain " +
+                S.Utility(S.Number(C.Get(shieldArmour)) + " armour") + ", <style=cIsHealing>" +
+                S.Number(C.Get(shieldRegen)) + " health regeneration per second</style> and " +
+                S.Utility(S.Number(C.Get(shieldAttackSpeed)) + "% attack speed") + ".\nOverlapping shields do not stack.";
+            tooltip.enabled = true;
+            if (self.iconImage) self.iconImage.raycastTarget = true;
+        }
+        private static AssetReference FindEffectReference(object value, int depth = 0)
+        {
+            if (value is AssetReference reference) return reference;
+            if (value == null || depth >= 4) return null;
+            Type type = value.GetType();
+            if (type.IsPrimitive || type.IsEnum || value is string || value is UnityEngine.Object) return null;
+            foreach (FieldInfo field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                AssetReference found = FindEffectReference(field.GetValue(value), depth + 1);
+                if (found != null) return found;
+            }
+            return null;
+        }
+        private static void LoadShieldEndEffect()
+        {
+            try
+            {
+                object wrapper = S.Read(Sample("EngiBubbleShield.Deployed"), "destroyEffectPrefab");
+                AssetReference reference = FindEffectReference(wrapper);
+                // This is the scene-authored address reported by the native state.
+                object key = reference != null && reference.RuntimeKeyIsValid() ? reference.RuntimeKey :
+                    "Assets/RoR2/Base/Characters/Engi/Projectiles/EngiBubbleShield/BubbleShieldEndEffect.prefab";
+                var locations = Addressables.LoadResourceLocationsAsync(key, typeof(GameObject));
+                bool exists;
+                try { exists = locations.WaitForCompletion()?.Count > 0; }
+                finally { Addressables.Release(locations); }
+                if (!exists)
+                {
+                    ThreeQsVanillaTweaks.Log.Warning("Bubble Shield end-effect address unavailable; shield gameplay remains enabled.");
+                    return;
+                }
+                shieldEndEffectHandle = Addressables.LoadAssetAsync<GameObject>(key);
+                shieldEndEffect = shieldEndEffectHandle.WaitForCompletion();
+            }
+            catch (Exception error)
+            {
+                ThreeQsVanillaTweaks.Log.Warning("Bubble Shield end-effect preload unavailable: " + error.Message);
+            }
+        }
+        private static bool BeforeShieldExit(EntityState __instance)
+        {
+            // The native base EntityState.OnExit is empty. Preserve its sound/effect
+            // without invoking the failing EntityStateGameObject implicit conversion.
+            if (shuttingDown || !__instance.outer) return false;
+            if (shieldEndEffect)
+                EffectManager.SpawnEffect(shieldEndEffect, new EffectData
+                {
+                    origin = __instance.transform.position, rotation = __instance.transform.rotation,
+                    scale = S.Value(__instance, "destroyEffectRadius")
+                }, false);
+            string sound = S.Read(__instance, "destroySoundString") as string;
+            if (!string.IsNullOrEmpty(sound)) PointSoundManager.EmitSoundLocal(sound, __instance.transform.position);
+            return false;
+        }
+        private static bool BeforeWalkerTick(EntityState __instance)
+        {
+            CharacterBody body = Body(__instance);
+            if (__instance.outer && body && body.inputBank && body.healthComponent && body.healthComponent.alive) return true;
+            // A pooled or dying state may outlive its body for a fixed update.
+            // Do not enter the native method's unguarded characterBody dereference.
+            WalkerRuntime data = walkerRuntime.GetOrCreateValue(__instance);
+            if (!data.Warned)
+            {
+                data.Warned = true;
+                ThreeQsVanillaTweaks.Log.Debug("Carbonizer: skipped beam update while body/input references were unavailable.");
+            }
+            return false;
+        }
+        private static bool BeforeWalkerBullet(EntityState __instance)
+        {
+            CharacterBody body = Body(__instance);
+            if (!__instance.outer || !body || !body.master || !body.healthComponent || !body.healthComponent.alive) return false;
+            FieldInfo callback = AccessTools.Field(__instance.GetType(), "hitCallback");
+            if (callback != null && callback.GetValue(__instance) == null)
+            {
+                MethodInfo hit = AccessTools.Method(__instance.GetType(), "OnBulletHitAuthority");
+                if (hit == null) return false;
+                callback.SetValue(__instance, Delegate.CreateDelegate(callback.FieldType, __instance, hit));
+                if (!warnedWalkerCallback)
+                {
+                    warnedWalkerCallback = true;
+                    ThreeQsVanillaTweaks.Log.Info("Carbonizer: restored missing native beam hit callback.");
+                }
+            }
+            return true;
         }
         private sealed class BubbleSupport : MonoBehaviour
         {
@@ -770,7 +930,9 @@ namespace Tweaks.Survivors
             // Use the enemy already selected by the AI and retain its visibility/memory rules.
             var target = ai.skillDriverEvaluation.aimTarget;
             if (target == null || target != ai.currentEnemy || !target.gameObject ||
-                !target.healthComponent || !target.healthComponent.alive || !target.GetBullseyePosition(out Vector3 point)) return false;
+                !target.healthComponent || !target.healthComponent.alive || !ai.body ||
+                !(S.Read(target, "owner") is RoR2.CharacterAI.BaseAI targetOwner) || !targetOwner || !targetOwner.body ||
+                !target.GetBullseyePosition(out Vector3 point)) return false;
             Vector3 offset = point - origin;
             if (offset.sqrMagnitude <= 0.000001f) return false;
             direction = offset.normalized; return true;

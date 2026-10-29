@@ -1,4 +1,5 @@
 # General
+
 - Variant Availability: Makes Verdant Falls, Viscous Falls, Shattered Abodes Disturbed Impact, Treeborn Colony, Golden Dieback, Iron Alluvium and Iron Auroras available both before and after looping. Yields to Wolfo's LoopVariantConfig when installed.
 - Delays selected enemy and Void Seed spawn cards on Viscous Falls and Disturbed Impact so they cannot spawn on the first stage. On the first stage, Disturbed Impact receives 280 player-scaled interactable credits minus 10 flat, accounting for its guaranteed Large Chest. Yields to LoopVariantConfig when installed.
 - Guarantees a Halcyon Shrine on first-stage maps.
@@ -96,6 +97,7 @@
 - Adds a guaranteed Scrapper.
 
 # Commencement 
+
 - Spawns 4–8 pillars, with one of each type required before the jump pads unlock.
 - Completed pillars award items, and unused pillars remain available after unlocking the jump pads.
 - Reward odds are 50% Common, 20% Uncommon, 5% Legendary, 15% Lunar and 10% Pearl. Pearl rewards have a 20% chance to become Irradiant Pearls.
@@ -121,3 +123,12 @@
 - Each choice rolls 40% Common, 30% Uncommon, 5% Legendary, 10% Void Common, 10% Void Uncommon or 5% Void Legendary.
 - Adds a Void shop with pools trading 2 Uncommon items for a Void Common, 3 Common items for a Void Uncommon, or 5 Uncommon items for a Void Legendary.
 - The Void Legendary pool also accepts one Legendary item as an alternative.
+
+# (Secret Hallowed Concepts Realm)
+
+- Spawns a Golden Geode puzzle 30 seconds after the secret boss of Hallowed Concepts is defeated.
+- Destroying the final geode opens a gold portal to Gilded Coast. Defeating Aurelionite there offers a green portal to Prime Meridian, or the full route if enabled in the green portal config.
+
+# Eclipse
+
+- Allows Void Locus and Planetarium portal routes in Eclipse.

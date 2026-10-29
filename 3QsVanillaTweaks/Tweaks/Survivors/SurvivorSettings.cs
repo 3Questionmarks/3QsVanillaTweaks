@@ -192,12 +192,12 @@ namespace Tweaks.Survivors
                 }
             }
             internal bool CooldownAfterDuration => C.Get(cooldownAfter);
-            internal void BindDamage(float nativePercent, float? defaultPercent = null, float nativeProc = 1f, bool periodic = false)
+            internal void BindDamage(float nativePercent, float? defaultPercent = null, float nativeProc = 1f, bool periodic = false, float? defaultProc = null)
             {
                 Periodic = periodic;
                 Damage = Float(Section, "Damage (%)", defaultPercent ?? nativePercent, nativePercent,
                     periodic ? "Damage per tick as a percentage of base damage." : "Damage per hit as a percentage of base damage.");
-                Proc = Float(Section, "Proc Coefficient", StateType.Name == "ThrowCycloneKickable" ? 0.5f : nativeProc, nativeProc, "Proc coefficient per hit.");
+                Proc = Float(Section, "Proc Coefficient", defaultProc ?? (StateType.Name == "ThrowCycloneKickable" ? 0.5f : nativeProc), nativeProc, "Proc coefficient per hit.");
                 var nativeFalloff = StateType.Name == "FireShotgunBlast" ? BulletFalloff.Buckshot :
                     StateType.Name == "FirePistol2" || StateType.Name == "FireBarrage" || StateType.Name == "FireShotgun2" ? BulletFalloff.Default : BulletFalloff.None;
                 Falloff = C.Bind(Section, "Damage Falloff", nativeFalloff, "Damage falloff over distance. Vanilla: " + nativeFalloff + ".");

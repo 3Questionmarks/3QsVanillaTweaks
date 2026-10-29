@@ -27,3 +27,13 @@
 
 - Multiple players can use the cooking menu at the same time.
 - Cooked meals go directly into the cooking player's inventory. Equipment still drops normally.
+
+# Aurelionite Fragments
+
+- Removes guaranteed Seekers of the Storm item choices. Eligible Storm items remain in the normal reward pool.
+
+# Green Portals
+
+- Completing a Halcyon Shrine encounter always opens a green portal, including on stages 4 and 5.
+- Green portals used after stage 3 lead to Prime Meridian.
+- Optional: require the full route through Reformed Altar and Treeborn Colony (or its loop variant) before Prime Meridian, regardless of the stage where the route starts. Off by default.

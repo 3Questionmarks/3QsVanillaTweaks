@@ -58,6 +58,9 @@ namespace Config
             SurvivorStatsFile = OpenFile(Path.Combine(directory, basename + ".Survivor-Stats.cfg"));
             foreach (string module in ModuleNames)
                 moduleFiles.Add(module, OpenFile(Path.Combine(directory, basename + "." + module + ".cfg")));
+            new HarmonyLib.Harmony("3Questionmarks.3QsVanillaTweaks.ItemConfigNotes").Patch(
+                typeof(ConfigFile).GetMethod("Save"),
+                postfix: new HarmonyLib.HarmonyMethod(typeof(ConfigManager), nameof(AfterConfigSave)));
             regenerateConfig = BindBool("Debug - Config", "Regenerate Config On Next Launch", false,
                 "Refresh config files and remove obsolete options on the next launch, keeping your settings. Turns itself off afterwards.", clientSide: true);
             regenerateRequested = regenerateConfig.Value;
@@ -95,6 +98,23 @@ namespace Config
             // Survivor settings are bound by their onLoad callbacks. Tick runs after
             // the complete event invocation, so these bindings are included too.
             RoR2.RoR2Application.onLoad += () => bindingsReady = true;
+        }
+
+        private const string ItemBalanceNotes = "# Item balance notes\n" +
+            "# Most item changes aim to improve multiplayer effectiveness or reduce potential lag,\n" +
+            "# and to reduce late-game proc chains that can clear the entire map from a single hit.\n" +
+            "# Inspired by Risky Mod. Many damaging items therefore have their proc coefficient\n" +
+            "# removed, with other values increased to compensate.\n\n";
+        private static void AfterConfigSave(ConfigFile __instance)
+        {
+            if (!moduleFiles.TryGetValue("Items", out var items) || !ReferenceEquals(items, __instance)) return;
+            try
+            {
+                string text = System.IO.File.ReadAllText(items.ConfigFilePath);
+                if (!text.StartsWith("# Item balance notes", StringComparison.Ordinal))
+                    System.IO.File.WriteAllText(items.ConfigFilePath, ItemBalanceNotes + text, new UTF8Encoding(false));
+            }
+            catch (Exception error) { ThreeQsVanillaTweaks.Log.Warning("Could not write item config notes: " + error.Message); }
         }
 
         private static ConfigFile OpenFile(string path)

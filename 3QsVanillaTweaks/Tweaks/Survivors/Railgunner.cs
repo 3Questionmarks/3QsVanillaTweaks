@@ -36,7 +36,7 @@ namespace Tweaks.Survivors
             internal readonly Dictionary<SkillDef, string[]> Keywords = new Dictionary<SkillDef, string[]>();
             internal ConfigEntry<string> Magazine;
             internal ConfigEntry<float> PerfectBonus, WeakBonus, Charge, Disable, Tracking, Push;
-            internal ConfigEntry<bool> AllPerfect, GroundRecoil, Execute;
+            internal ConfigEntry<bool> AllPerfect, GroundRecoil, Execute, SelfDamage;
             internal float NativeBlast = 1f, NativeForce, NativeRadius, NativeTracking, NativeInputForce;
         }
         private sealed class StateScope
@@ -250,7 +250,7 @@ namespace Tweaks.Survivors
         {
             S.Skill s = p.Skill; int i = p.Index;
             s.Bind(damage: false, nativeConsumeOverride: i == 1 ? (int?)1 : null, changedAgile: i == 3 || i == 4 ? (bool?)true : null);
-            if (i != 4) s.BindDamage(Number(s.Sample, "damageCoefficient", 1f) * 100f, i == 3 ? (float?)50f : i == 6 ? 2000f : null, Number(s.Sample, "procCoefficient", 1f));
+            if (i != 4) s.BindDamage(Number(s.Sample, "damageCoefficient", 1f) * 100f, i == 3 ? (float?)50f : i == 6 ? 2000f : null, Number(s.Sample, "procCoefficient", 1f), defaultProc: i == 3 ? (float?)0.1f : null);
             if (i == 0 || i == 3 || i == 4)
             {
                 p.Projectile = Prefab(Read(s.Sample, "projectilePrefab"));
@@ -266,7 +266,7 @@ namespace Tweaks.Survivors
                 p.GroundRecoil = S.Bool(s.Section, "Disable Pushback On Ground", true, false, "Prevent the attack from pushing you backwards while grounded.");
             }
             if (i == 1 || i == 2)
-                p.Magazine = C.Bind(s.Section, "Backup Mag Stacking", "Extra Shot", "Effect of Backup Magazine. Use Extra Shot, Extra Damage:<damage%>, or None. Extra Shot grants an extra shot before reloading for M99, or one extra shot per second for HH44. Extra Damage adds base damage per magazine. Vanilla: Extra Shot for M99; None for HH44.");
+                p.Magazine = C.Bind(s.Section, "Backup Mag Stacking", i == 2 ? "Damage Multiplier:25" : "Extra Shot", "Effect of Backup Magazine. Use Extra Shot, Extra Damage:<base damage%>, Damage Multiplier:<damage%>, or None. Extra Shot grants an extra shot before reloading for M99, or one extra shot per second for HH44. Extra Damage adds base damage per magazine. Damage Multiplier adds the specified percentage of the configured shot damage per magazine (25 means +25%, +50%, +75% with 1, 2, 3 magazines). Vanilla: Extra Shot for M99; None for HH44.");
             if (i == 1)
             {
                 float native = Number(EntityStateCatalog.InstantiateState(State("Reload.Boosted")), "bonusDamageCoefficient", 5f) * 100f;
@@ -279,6 +279,7 @@ namespace Tweaks.Survivors
                 if (explosion) p.NativeBlast = Math.Max(0.0001f, explosion.blastDamageCoefficient);
                 if (i == 3)
                 {
+                    p.SelfDamage = S.Bool(s.Section, "Can Damage Self", false, false, "Allow Concussion Device to damage its owner. Disabled preserves the launch force while preventing self-damage and self-hit procs.");
                     p.NativeInputForce = Number(s.Sample, "force");
                     p.NativeForce = p.NativeInputForce > 0f ? p.NativeInputForce : explosion ? Vector3.Distance(explosion.bonusBlastForce, Vector3.zero) : 0f;
                     p.Push = S.Float(s.Section, "Push Force", p.NativeForce, p.NativeForce, "Force applied by the concussion blast.");
@@ -286,7 +287,7 @@ namespace Tweaks.Survivors
                 BuffWard ward = p.ProjectileFamily.SelectMany(g => g.GetComponentsInChildren<BuffWard>(true)).FirstOrDefault();
                 p.NativeRadius = i == 4 && ward ? ward.radius : explosion ? explosion.blastRadius : 0f;
                 s.Radius = S.Float(s.Section, "AOE Radius", p.NativeRadius, p.NativeRadius, "Area radius in metres.");
-                s.Area = C.Bind(s.Section, "AOE Damage Falloff", explosion ? (S.AreaFalloff)Enum.Parse(typeof(S.AreaFalloff), explosion.falloffModel.ToString()) : S.AreaFalloff.None, "Damage falloff from the centre of the area. Vanilla: " + (explosion ? explosion.falloffModel.ToString() : "None") + ".");
+                s.Area = C.Bind(s.Section, "AOE Damage Falloff", i == 3 ? S.AreaFalloff.SweetSpot : explosion ? (S.AreaFalloff)Enum.Parse(typeof(S.AreaFalloff), explosion.falloffModel.ToString()) : S.AreaFalloff.None, "Damage falloff from the centre of the area. Vanilla: " + (explosion ? explosion.falloffModel.ToString() : "None") + ".");
                 if (i == 4)
                 {
                     float lifetime = ward && ward.expires ? ward.expireDuration : 8f;
@@ -321,13 +322,14 @@ namespace Tweaks.Survivors
         internal static int MagazineKind(string value)
         {
             string mode = (value ?? "").Split(':')[0].Replace(" ", "").Trim();
-            return string.Equals(mode, "ExtraShot", StringComparison.OrdinalIgnoreCase) ? 0 : string.Equals(mode, "ExtraDamage", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
+            return string.Equals(mode, "ExtraShot", StringComparison.OrdinalIgnoreCase) ? 0 : string.Equals(mode, "ExtraDamage", StringComparison.OrdinalIgnoreCase) ? 1 : string.Equals(mode, "DamageMultiplier", StringComparison.OrdinalIgnoreCase) ? 3 : 2;
         }
         internal static float MagazineDamage(string value)
         {
             string[] parts = (value ?? "").Split(':');
             return parts.Length == 2 && float.TryParse(parts[1].Trim().TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float result) && !float.IsNaN(result) && !float.IsInfinity(result) ? Math.Max(0f, result) : 50f;
         }
+        internal static float MagazineDamageMultiplier(float damage, int magazines, float percent) => damage * (1f + Math.Max(0, magazines) * percent / 100f);
         internal static float LightInterval(float native, int magazines) => 1f / (1f / Math.Max(0.001f, native) + Math.Max(0, magazines));
         private static int Magazines(CharacterBody body) => body && body.inventory ? body.inventory.GetItemCountEffective(RoR2Content.Items.SecondarySkillMagazine) : 0;
         private static void Apply()
@@ -392,6 +394,7 @@ namespace Tweaks.Survivors
             {
                 int magazines = Magazines(body), mode = MagazineKind(C.Get(p.Magazine));
                 if (mode == 1) Set(__state, __instance, "damageCoefficient", (C.Get(p.Skill.Damage) + MagazineDamage(C.Get(p.Magazine)) * magazines) / 100f);
+                if (mode == 3) Set(__state, __instance, "damageCoefficient", MagazineDamageMultiplier(C.Get(p.Skill.Damage), magazines, MagazineDamage(C.Get(p.Magazine))) / 100f);
                 if (p.Index == 2 && mode == 0) Set(__state, __instance, "baseDuration", Number(p.Skill.Sample, "baseDuration", 0.5f) * LightRateFactor(p, magazines));
             }
             if (p.Index >= 5)
@@ -550,24 +553,33 @@ namespace Tweaks.Survivors
             if (model == BulletAttack.FalloffModel.Buckshot) return 0.3f + Mathf.Clamp01((40f - distance) / 28f) * 0.7f;
             return 1f;
         }
-        private static void BeforeDamage(HealthComponent __instance, DamageInfo damageInfo, out DamageScope __state)
+        private static bool BeforeDamage(HealthComponent __instance, DamageInfo damageInfo, out DamageScope __state)
         {
             __state = new DamageScope { Previous = cryoExecution }; cryoExecution = null;
-            if (!NetworkServer.active || !damageInfo.attacker || !IsRailgunner(damageInfo.attacker.GetComponent<CharacterBody>())) return;
+            if (!NetworkServer.active || !damageInfo.attacker || !IsRailgunner(damageInfo.attacker.GetComponent<CharacterBody>())) return true;
             var marker = damageInfo.inflictor ? damageInfo.inflictor.GetComponentInParent<DamageMarker>() : null;
+            if (marker?.Profile.Index == 3 && marker.Profile.SelfDamage != null && !C.Get(marker.Profile.SelfDamage) && damageInfo.attacker == __instance.gameObject)
+            {
+                // BlastAttack normally routes launch force through TakeDamage. Retain that
+                // force explicitly, then skip damage processing and reject self-hit procs.
+                __instance.TakeDamageForce(damageInfo);
+                damageInfo.damage = 0f; damageInfo.procCoefficient = 0f; damageInfo.rejected = true;
+                return false;
+            }
             if (marker?.Profile.Skill.Falloff != null)
             {
                 var model = C.Get(marker.Profile.Skill.Falloff);
                 var native = model == S.BulletFalloff.None ? BulletAttack.FalloffModel.None : model == S.BulletFalloff.Buckshot ? BulletAttack.FalloffModel.Buckshot : BulletAttack.FalloffModel.DefaultBullet;
                 damageInfo.damage *= ProjectileFalloff(native, Vector3.Distance(marker.Origin, damageInfo.position));
             }
-            if (!profiles.TryGetValue(6, out Profile p) || !C.Get(p.Execute) || (damageInfo.damageType & DamageType.Freeze2s) == 0 || damageInfo.rejected) return;
+            if (!profiles.TryGetValue(6, out Profile p) || !C.Get(p.Execute) || (damageInfo.damageType & DamageType.Freeze2s) == 0 || damageInfo.rejected) return true;
             var hurt = __instance.GetComponent<SetStateOnHurt>();
             if (hurt && hurt.canBeFrozen && __instance.body && (__instance.body.bodyFlags & CharacterBody.BodyFlags.ImmuneToExecutes) == 0)
             {
                 BuffDef immunity = FindBuff("FreezeImmune");
                 if (!immunity || !__instance.body.HasBuff(immunity)) cryoExecution = __instance;
             }
+            return true;
         }
         private static Exception EndDamage(DamageScope __state, Exception __exception) { cryoExecution = __state.Previous; return __exception; }
         private static bool IsFrozenForExecution(HealthComponent target) => target.isInFrozenState || target == cryoExecution;
@@ -590,8 +602,8 @@ namespace Tweaks.Survivors
             {
                 case 0: return p.Skill.AgileText + "Fire aggressive tracking rounds for " + damage + ".";
                 case 1: return p.Skill.AgileText + "Activate your long-range scope, highlighting <style=cIsDamage>Weak Points</style> and transforming your weapon into a piercing railgun for " + damage + ". Perfectly reloading adds " + S.Damage(S.Number(C.Get(p.PerfectBonus)) + "% base damage") + (C.Get(p.AllPerfect) ? " to every shot before reloading." : " to your next shot.");
-                case 2: return p.Skill.AgileText + "Activate your short-range scope, highlighting <style=cIsDamage>Weak Points</style> and transforming your weapon into a rapid-fire railgun for " + damage + ".";
-                case 3: return p.Skill.AgileText + "Throw out a device that pushes away all nearby enemies and you, dealing " + damage + ".";
+                case 2: return p.Skill.AgileText + "Activate your short-range scope, highlighting <style=cIsDamage>Weak Points</style> and transforming your weapon into a rapid-fire railgun for " + damage + "." + (MagazineKind(C.Get(p.Magazine)) == 3 ? " Each <style=cIsUtility>Backup Magazine</style> adds <style=cIsDamage>" + S.Number(MagazineDamage(C.Get(p.Magazine))) + "% shot damage</style>." : "");
+                case 3: return p.Skill.AgileText + "Throw out a device that pushes away all nearby enemies and you, dealing " + damage + "." + (!C.Get(p.SelfDamage) ? " Does not damage you." : " Can damage you.");
                 case 4: return p.Skill.AgileText + "Throw out a device that creates a field, <style=cIsUtility>slowing</style> enemies by <style=cIsUtility>" + C.Get(slow) + "%</style>" + (C.Get(weaken) ? " and <style=cIsUtility>weakening</style> them" : "") + "." + (C.Get(frost) ? " Applies <style=cIsUtility>Frost</style> every <style=cIsUtility>" + S.Number(C.Get(frostInterval)) + " seconds</style>." : "");
                 default: return p.Skill.AgileText + "Temporarily supercharge your railgun, firing " + (p.Index == 6 ? "a <style=cIsUtility>freezing</style> shot" : "a piercing shot") + " for " + damage + " with <style=cIsDamage>" + S.Number(C.Get(p.WeakBonus)) + "% bonus weakpoint damage</style>." + (C.Get(p.Disable) > 0f ? " Afterwards, weapons are <style=cIsUtility>disabled</style> for <style=cIsUtility>" + S.Number(C.Get(p.Disable)) + " seconds</style>." : "");
             }

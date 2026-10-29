@@ -4,4 +4,4 @@
 - **RegisterCommandChest:** uses its distinct Command Chest appearance on the Iron stages when installed.
 - **LoopVariantConfig:** takes over overlapping stage-variant mixing and first-stage rebalancing automatically.
 - **LookingGlass:** displays supported modified item and skill statistics.
-- LookingGlass displays the mod's supported item and skill changes in its statistics.
+- **ZetAspects:** aspect crafting uses its item/equipment mode. Wake of Vultures' combat balance remains controlled by ZetAspects.

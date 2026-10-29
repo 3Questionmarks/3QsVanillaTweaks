@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.3.0] - Railgunner Fixes, Defensive Mechanics and New Routes
+
+
+### Fixed
+
+- **Railgunner — Concussion Device:** Prevents self-damage by default while preserving launch force for mine jumping. Self-damage has its own toggle.
+- **Engineer:** Improved Bubble Shield end-effect loading and guarded Carbonizer targeting and beam updates against missing references.
+
+### Changed
+
+- **Railgunner — Concussion Device:** Defaults to Sweet Spot area falloff and a 0.1 proc coefficient. 
+- **Railgunner — Marksman:** Backup Magazines now add 25% shot damage per stack by default, replacing this mod's previous extra-shot-per-second behaviour.
+- **Stone Flux Pauldron:** Defaults to changing its downside of 50 armour lost per stack instead of movement speed.
+- **Radar Scanner:** Base cooldown reduced from 45 to 20 seconds; scan radius, reveal duration and pulse settings are configurable.
+- **Aurelionite Fragments:** Removed forced Seekers of the Storm choices from shrine rewards and this mod's fixed fragments. Eligible Storm items remain in the normal pool.
+- **Temporary items:** Default duration increased from 80 to 90 seconds.
+
+### Added
+
+- **One-shot protection:** Now should more reliably actually protect you from "one shots", 0.5-second immunity to follow-up hits and a 5-second cooldown after triggering.
+- **Shields:** Shield-breaking damage no longer spills into health by default. Shields replenish over 3 seconds after a 7-second delay. Additionally, fall damage and percentage based healing now uses shield in their calculations. (Healing is still only recovers health)
+- **Barrier:** Barrier-breaking damage no longer spills into shields or health by default. Maximum barrier uses pre-curse combined HP; optional decay formulas are available, with vanilla decay retained by default.
+- **Freeze:** Can now execute bosses - Boss execution defaults to a 10% combined-health.
+- **Multiplayer drones:** You can now interact with interactables by default, but you only have 1 drone respawn per player per stage by default.
+- **Buff presentation:** Icons and descriptions for Bubble Shield support, Huntress Momentum, Captain support, Carbonizer slow and the one-shot protection cooldown.
+- **Hallowed Concepts Secret Boss:** A Golden Geode puzzle appears 30 seconds after the boss' defeat. Completing the puzzle opens a gold portal to Gilded Coast, followed by a green portal after Aurelionite.
+- **Green portals:** Completed Halcyon Shrines can always open a green portal, including on stages 4 and 5. Late portals lead to Prime Meridian by default. An optional full-route setting starts at Reformed Altar, continues through Treeborn Colony or its loop variant, then reaches Prime Meridian.
+- **Eclipse void route:** Allows Void Locus and Planetarium portal routes during eclipse.
+- **Aspect crafting:** Added configurable recipes all using Wake of Vultures at the Wandering Chef. Optional ZetAspects support.
+
+### Notes
+
+- Existing config values are preserved. To adopt the new Railgunner defaults in an existing config, set Concussion Device's **AOE Damage Falloff** to `SweetSpot`, **Proc Coefficient** to `0.1`, and Marksman's **Backup Mag Stacking** to `Damage Multiplier:25`. The will not update automatically. You can also just delete the Survivors.cfg file to regenerate it with default values.
+
 ## [0.2.0] - Survivor Configuration, Heresy Skills and Stage Expansion
 
 ### Added

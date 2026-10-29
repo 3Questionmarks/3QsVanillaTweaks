@@ -4,21 +4,21 @@ A configurable collection of tweaks and quality-of-life improvements for Risk of
 
 Most features have their own switches and settings. Use the defaults as a balance preset, adjust individual values, or disable entire modules. Gameplay settings follow the host's configuration in multiplayer where supported.
 
-**Current version: 0.2.0**
+**Current version: 0.3.0**
 
-## What's new in 0.2.0?
+## What's new in 0.3.0?
 
-- **Survivor configuration:** Editable stats and skill settings for all 21 supported vanilla survivors, including the DLC survivors. Applicable skills have options for damage, proc coefficients, cooldowns, stocks, sprint behaviour, durations, projectile speeds and areas of effect.
-- **More stage variety:** Optional stage variant mixing, previous-run stage avoidance, configurable fixed interactables and expanded special-stage options.
-- **Command Chests:** Optional RegisterCommandChest integration, improved ground placement and configurable rarity weights on Iron Alluvium and Iron Auroras.
-- **Clearer descriptions:** Updated skill descriptions, keyword tooltips and LookingGlass statistics for supported changes.
-- **Organised configuration:** Separate files for the main feature groups, survivor stats and optional mod compatibility.
+- **Railgunner fixes:** Concussion Device preserves mine jumping without self-damage by default, uses Sweet Spot falloff and has a 0.1 proc coefficient. Backup Magazines grant Marksman 25% extra shot damage per stack instead of extra shots per second.
+- **Defensive mechanics:** Configurable one-shot protection, shield and barrier gating, shield recharge, percentage-based healing and barrier decay options.
+- **New routes:** A post-Hallowed Concepts secret boss Golden Geode puzzle opens a route through Gilded Coast. Green portals can appear from completed Halcyon Shrines on later stages, with an optional full Path of the Colossus requirement. Void Locus and Planetarium routes are available in Eclipse.
+- **Multiplayer Drones:** Player-controlled drones are able to interact with interactables (such as buying chests). Now limited to 1 drone respawn per stage per player.
+- **Items and equipment:** Added aspect crafting at the Wandering Chef, reduced Radar Scanner's cooldown and changed Stone Flux Pauldron downside to make it more pickable.
 
 ## Main features
 
-- More maps have a useful feature you can plan around. By default, supported stages gain fixed interactables, guaranteed opportunities or additional rewards, with configurable spawn chances and placement. For example: **Distant Roost:** A Boss Printer on either layout. **Titanic Plains:** An Uncommon Printer on either layout. **Siphoned Forest:** A Legendary Printer. **Shattered Abodes and Disturbed Impact:** An Aurelionite Fragment. **Iron Alluvium and Iron Auroras:** A Command Chest with configurable rarity odds.
+- **Consistent stage features:** supported maps gain useful interactables or rewards you can plan around, such as Distant Roost's Boss Printer, Titanic Plains' Uncommon Printer, Siphoned Forest's Legendary Printer and the Iron stages' Command Chests. Spawn chances and placement are configurable.
 - Configure survivor stats and applicable skill values, including damage, cooldowns, stocks, proc coefficients, durations and projectile behaviour. Individual modules also include behaviour fixes and clearer descriptions.
-- Item changes including regenerating consumed revival items, broader uses for Regenerating Scrap, adjustments to Egocentrism and Lost Seer's Lenses.
+- Item changes include regenerating consumed revival items, broader uses for Regenerating Scrap, adjustments to Egocentrism and Lost Seer's Lenses, and elite aspect crafting. Many item changes aim to improve multiplayer usefulness or reduce lag and late-game map-clearing proc chains, inspired by Risky Mod.
 - The Bazaar has options for extra interactables, cauldrons, Lunar shop purchases and rerolls, equipment recharge and Newt's behaviour. Each feature can be adjusted independently.
 - Options for customising shrines, Teleporters, the Wandering Chef, Lunar Coin drops and sharing, and out-of-bounds pickup recovery.
 - Added the **Artifact of the Fleeting Moon**, an artifact that makes Lunar Coins a per-run currency. The artifact doesn't affect your save file's normal, permanent Lunar Coins.
@@ -32,8 +32,13 @@ Most features have their own switches and settings. Use the defaults as a balanc
 - **Moffein's Heretic:** Shared skill support and optional stat overrides.
 - **RegisterCommandChest:** The distinct registered Command Chest prefab on the Iron stages.
 - **LoopVariantConfig:** Our overlapping stage-variant changes automatically yield to Wolfo's mod while it is loaded.
+- **ZetAspects:** Aspect crafting follows its item/equipment mode and preserves its Wake of Vultures combat balance.
 
 These mods are optional. Multiplayer and compatibility testing are ongoing; use compatible mod lists and matching versions when playing together.
+
+## Updating
+
+Existing configuration values are preserved. New defaults do not overwrite saved values, including Railgunner's proc coefficient, falloff and Backup Magazine mode. To use the new Marksman behaviour in an existing config, set **Backup Mag Stacking** to `Damage Multiplier:25`.
 
 ## Feedback
 
