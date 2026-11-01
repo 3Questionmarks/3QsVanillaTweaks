@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.4.0] - Item Rebalance, Equipment Configuration and Multiplayer Hexes
+
+### Added
+
+- **Item and equipment configuration:** Added configuration for Boss, Common, Uncommon, Rare, Lunar, Void, Hallowed, Hex and Meal items, plus equipment and elite aspects.
+- **Item reworks:** added default reworks for Delicate Watch, Chance Doll, Hunter's Harpoon, Leeching Seed, Lepton Daisy, Old Guillotine, Old War Stealthkit, Happiest Mask, Resonance Disc, Symbiotic Scorpion, Neutronium Weight and Vengeful Spirit. Configurable original modes remain available where supported.
+- **Multiplayer Hexes:** Rain, Strife and Greed use holder-only penalties; Patience uses the holder's stacks and only harm them, and Haunting/Mimicry enemies target their holder. Loss removes permanent items at stage entry, prioritising scrap and protecting Lunar and important items by default.
+- **Equipment passives:** Functional Coupler supports passive equipment effects in extra slots. Aspect settings yield to ZetAspects.
+- **Holdout events:** pillar and Deep Void Signal kills grant 1% charge. Each subsequent encounter gains 25% of the initial enemy credit budget, with doubled increases beyond the required count.
+- **Allies:** allied drones are immune to void fog. Goobo Jr. and Happiest Mask clones can seek enemies across the map so they hopefully wont just stand around doing nothing.
+- **Recycler:** a 1-second cooldown while the run timer is paused, without triggering equipment-use effects in that mode.
+
+### Changed
+
+- **Item balance:** adjusted damage, stacking, healing, barrier and proc coefficients across all main rarities. Many direct-damage effects gain stronger values while producing fewer proc chains. Full defaults are listed in the wiki.
+- **Alien Head:** moves to Uncommon and grants 15% cooldown reduction per stack.
+- **Orphaned Core:** automatically cleanses every 30 seconds, reduced by 10% per extra stack. Item inheritance can be set to None, Movement or All; Movement remains the default.
+- **Defiant Gouge:** defeated shrine enemies award items, with no reward after a failed Chance Shrine purchase. Summoned enemies drop no gold by default. 
+- **Huntress — Laser Cyclone:** 4.5-second cooldown, half-speed return and no return-time limit. Each returned cyclone allows one stock to recharge, including with extra stocks.
+- **Captain:** Healing and Hacking Beacons last 30 seconds; Resupply lasts 45 seconds. Hacking takes three times vanilla's duration. The lifetime timer continues during a hack, but the beacon finishes its current hack before expiring.
+- **Teleporter:** post-boss charge speed defaults to 1.5 times normal rather than 2 times. Soul-binding ritual (overcharging) retain normal speed.
+- **Shrine of Combat:** Combat Shrine enemies drop 50% of their normal gold to acount for the free item now given.
+- **Shield and barrier gating:** hits exceeding three times the remaining shield or barrier bypass that layer's gate by default. Transcendence disables normal one-shot protection while shield gating is enabled.
+- **Bazaar:** blocks gold generation to prevent gold and converted-experience farming.
+
+### Fixed
+
+- **Railgunner:** corrected the default scoped-secondary stock handling that could produce an excessively large stock count.
+- **Common cauldrons:** corrected repeated purchases for the added 2-green-to-3-white cauldrons in the Bazaar and Void Locus.
+- **Shields:** corrected maximum-health recalculation behaviour associated with shield breaking and regeneration.
+- **Extra holdout events:** restored enemy spawning for pillars and Deep Void Signals activated after the required count, without disabling Mithrix's fight encounters.
+- **Tenebrous Quagmire:** the added Hallowing Shrine now spawns its complete base and linked hands, preventing repeated errors when used.
+- **Optimised Startup:** Fixed really inefficient implementations for item and newt changes, the mod should now initilise much faster (50+ seconds down to ~10 after change in my tests)
+
+### Notes
+
+- Existing saved settings are preserved. Reset the relevant values to adopt changed defaults.
+- Multiplayer and compatibility testing remain ongoing.
+
 ## [0.3.0] - Railgunner Fixes, Defensive Mechanics and New Routes
 
 

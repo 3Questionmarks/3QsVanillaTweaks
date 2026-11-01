@@ -2,6 +2,8 @@ using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Reflection.Emit;
 using BepInEx.Configuration;
 using HarmonyLib;
 using RoR2;
@@ -59,10 +61,12 @@ namespace Tweaks.Bazaar
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Bazaar.CommonCauldron");
             harmony.Patch(AccessTools.Method(typeof(Stage), "Start"),
                 postfix: new HarmonyMethod(typeof(CommonCauldron), nameof(OnStageStart)));
-            // Enforce one payout of exactly three items, even if the reused
+            // Enforce one payout of exactly three items per paid purchase, even if the reused
             // Moon prefab calls its payout callback multiple times.
             harmony.Patch(AccessTools.Method(typeof(ShopTerminalBehavior), "DropPickup", new[] { typeof(bool) }),
                 prefix: new HarmonyMethod(typeof(CommonCauldron), nameof(BeforeCustomCauldronDrop)));
+            harmony.Patch(AccessTools.Method(typeof(PurchaseInteraction), "OnInteractionBegin"),
+                transpiler: new HarmonyMethod(typeof(CommonCauldron), nameof(PurchaseIL)));
             Log.Info("Bazaar extra common cauldron registered.");
         }
 
@@ -89,13 +93,50 @@ namespace Tweaks.Bazaar
             int identifier = cauldron.gameObject.GetInstanceID();
             if (!PaidCauldrons.Add(identifier))
             {
-                Log.Info("Prevented extra common cauldron payout (already dispensed 3 items).");
+                Log.Info("Prevented duplicate common cauldron payout for the current purchase (already dispensed 3 items).");
                 return false;
             }
 
             __instance.dropAmount = 3;
             __instance.debt = 1;
             return true;
+        }
+
+        private static void BeginPaidPurchase(PurchaseInteraction purchase)
+        {
+            if (!NetworkServer.active || !purchase || !InBazaar()) return;
+            Transform node = purchase.transform;
+            while (node)
+            {
+                if (node.gameObject.name == "3Qs_GreenToWhiteCauldron")
+                {
+                    PaidCauldrons.Remove(node.gameObject.GetInstanceID());
+                    return;
+                }
+                node = node.parent;
+            }
+        }
+
+        private static IEnumerable<CodeInstruction> PurchaseIL(IEnumerable<CodeInstruction> instructions)
+        {
+            int found = 0;
+            foreach (CodeInstruction original in instructions)
+            {
+                // This event is reached only after payment and item-removal have
+                // succeeded. Reset before any purchase listener can start payout.
+                if (original.opcode == OpCodes.Ldfld && original.operand is FieldInfo field &&
+                    field.DeclaringType == typeof(PurchaseInteraction) && field.Name == "onPurchase")
+                {
+                    var load = new CodeInstruction(OpCodes.Ldarg_0);
+                    load.labels.AddRange(original.labels); original.labels.Clear();
+                    load.blocks.AddRange(original.blocks); original.blocks.Clear();
+                    yield return load;
+                    yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(CommonCauldron), nameof(BeginPaidPurchase)));
+                    found++;
+                }
+                yield return original;
+            }
+            if (found != 1) throw new InvalidOperationException("Common cauldron paid-purchase anchor changed: " + found);
         }
 
         private static bool InBazaar()

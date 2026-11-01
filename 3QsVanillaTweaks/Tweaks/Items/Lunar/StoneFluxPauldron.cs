@@ -31,6 +31,7 @@ namespace Tweaks.Items.Lunar
             var h=new Harmony("3Questionmarks.3QsVanillaTweaks.StoneFluxPauldron");
             h.Patch(AccessTools.Method(typeof(CharacterBody),"RecalculateStats"),transpiler:new HarmonyMethod(typeof(StoneFluxPauldron),nameof(StatsIL)),postfix:new HarmonyMethod(typeof(StoneFluxPauldron),nameof(AfterStats)));
             Tweaks.Survivors.SurvivorSettings.SetText("ITEM_HALFSPEEDDOUBLEHEALTH_DESC",Description);
+            Tweaks.Survivors.SurvivorSettings.SetText("ITEM_HALFSPEEDDOUBLEHEALTH_PICKUP", () => "Double your health... but reduce your <style=cIsHealth>" + (C.Get(downside)==Downside.Armour ? "armour" : "movement speed") + "</style>.");
             C.EffectiveSettingsChanged += Refresh;
         }
         private static ConfigEntry<float> Number(string key,float value,string description,float max=100000f)=>C.Bind(Section,key,value,new ConfigDescription(description,new AcceptableValueRange<float>(0f,max)));
@@ -80,6 +81,6 @@ namespace Tweaks.Items.Lunar
             }
         }
         private static void Refresh(){foreach(var body in CharacterBody.readOnlyInstancesList)if(body&&body.inventory&&body.inventory.GetItemCountEffective(DLC1Content.Items.HalfSpeedDoubleHealth)>0)body.RecalculateStats();}
-        private static string Description()=>"Increase <style=cIsHealing>maximum health</style> by <style=cIsHealing>"+C.Get(health)+"%</style> <style=cStack>(+"+C.Get(healthStack)+"% per stack)</style>. "+(C.Get(downside)==Downside.Armour?"Reduce <style=cIsHealth>armour</style> by <style=cIsHealth>"+C.Get(armour)+"</style> <style=cStack>(+"+C.Get(armourStack)+" per stack)</style>.":"Reduce <style=cIsUtility>movement speed</style> by <style=cIsHealth>"+C.Get(slow)+"%</style>. Additional stacks add slowing based on <style=cStack>"+C.Get(slowStack)+"%</style> per stack.");
+        private static string Description()=>"Increase <style=cIsHealing>maximum health</style> by <style=cIsHealing>"+C.Get(health)+"%</style> <style=cStack>(+"+C.Get(healthStack)+"% per stack)</style>. "+(C.Get(downside)==Downside.Armour?"Reduce <style=cIsHealth>armour</style> by <style=cIsHealth>"+C.Get(armour)+"</style> <style=cStack>(+"+C.Get(armourStack)+" per stack)</style>.":"Reduce <style=cIsHealth>movement speed</style> by <style=cIsHealth>"+C.Get(slow)+"%</style> <style=cStack>(+"+C.Get(slowStack)+"% per stack)</style>.");
     }
 }

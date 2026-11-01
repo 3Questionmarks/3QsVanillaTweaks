@@ -249,6 +249,18 @@ namespace Tweaks.Survivors
         private static void Bind(Profile p)
         {
             S.Skill s = p.Skill; int i = p.Index;
+            if (i == 1)
+            {
+                // The scoped primary uses a sentinel capacity internally. The M99
+                // secondary has one usable shot; never use that sentinel as its default.
+                int internalCapacity = s.Definition.baseMaxStock;
+                s.Definition.baseMaxStock = 1;
+                var stocks = S.Int(s.Section, "Base Stocks", 1, 1, "Maximum number of stocks.");
+                // Config values are clamped to the accepted maximum when read.
+                // int.MaxValue from the scoped primary was therefore saved as 1000000.
+                if (internalCapacity >= 100000 && stocks.Value == Math.Min(internalCapacity, 1000000))
+                    stocks.Value = 1;
+            }
             s.Bind(damage: false, nativeConsumeOverride: i == 1 ? (int?)1 : null, changedAgile: i == 3 || i == 4 ? (bool?)true : null);
             if (i != 4) s.BindDamage(Number(s.Sample, "damageCoefficient", 1f) * 100f, i == 3 ? (float?)50f : i == 6 ? 2000f : null, Number(s.Sample, "procCoefficient", 1f), defaultProc: i == 3 ? (float?)0.1f : null);
             if (i == 0 || i == 3 || i == 4)

@@ -12,7 +12,7 @@
 - Adds **Momentum**, a passive granting up to 20% critical strike chance through sustained sprinting. Taking health damage resets it; barrier can protect the stacks.
 - **Strafe:** deals 170% damage (up from 150%).
 - **Laser Glaive:** gains 20% damage per bounce (up from 10%).
-- **Laser Cyclone:** reworked to have 1 stock and a 7-second cooldown, dealing 200% damage every 0.2 seconds. It can no longer be juggled.
+- **Laser Cyclone:** deals 200% damage every 0.2 seconds, with 1 stock and a 4.5-second cooldown. Returns at half speed with no return-time limit. Each returning cyclone allows one stock to recharge; extra stocks can still be thrown while others are airborne.
 - **Blink:** has a 6-second cooldown and reduced movement-speed scaling.
 - **Phase Blink:** has reduced movement-speed scaling.
 - **Arrow Rain:** deals 100% damage every 0.25 seconds for 8 seconds (400% per second, up from 330%). Its radius is greatly increased.
@@ -49,7 +49,7 @@
 # Artificer
 
 - **Flame Bolt / Plasma Bolt:** deal 300% damage. (Up from 280%)
-- **Charged Nano-Bomb / Cast Nano-Spear:** While charging, artificer doesn't fall and hovers.
+- **Charged Nano-Bomb / Cast Nano-Spear:** While charging, Artificer doesn't fall and hovers.
 - **Flamethrower:** can be used while sprinting, reaches 30 metres, always ignites and can be cancelled early by pressing the skill again.
 - **Ion Surge:** Removes movement-speed scaling from its launch, and protects the first landing from fall damage for 5 seconds.
 - With Artificer Extended installed, adds **Voltaic Surge** using the Ion Surge settings, leaving Ion Surge unchanged.
@@ -91,14 +91,15 @@
 
 # Captain
 
+- Orbital skills work in Hidden Realms.
 - **Vulcan Shotgun:** fires uncharged shots while held. Adds **Charged Shotgun** as a secondary, reaching 200% damage per pellet at full charge with no damage falloff.
 - **Power Tazer:** has a 4-second cooldown (down from 5s), bounces up to 3 times (up from once) and slows targets.
-- **Orbital Probe:** cooldown is 9 seconds (down from 11s). Orbital skills work in Hidden Realms.
+- **Orbital Probe:** cooldown is 9 seconds (down from 11s). 
 - **Supply Beacons:** recharge every 60 seconds, allow up to 3 active beacons and count as holdout zones.
-- **Healing Beacon:** now also grants 30% attack speed and 25 armour.
+- **Healing Beacon:** lasts 30 seconds and also grants 30% attack speed and 25 armour.
 - **Shocking Beacon:** now deals 350% damage (up from 0%), can critically strike and slows enemies.
-- **Resupply Beacon:** regenerates uses instead of permanently consuming them; a use recharges every 10 seconds, restores all skill slots and grants 50% maximum health as barrier.
-- **Hacking Beacon:** reduces costs by 50%, can hack printers and all multishop segments, and has a 15% chance to replace a hacked reward with a Command choice.
+- **Resupply Beacon:** lasts 45 seconds and regenerates uses instead of permanently consuming them; a use recharges every 10 seconds, restores all skill slots (except beacons) and grants 50% maximum health as barrier.
+- **Hacking Beacon:** lasts 30 seconds and takes three times the vanilla hacking time. Its lifetime continues while hacking, but it finishes its current hack before expiring. Reduces costs by 50%, can hack printers and all multishop segments, and has a 15% chance to replace a hacked reward with a Command choice.
 
 # Railgunner
 
@@ -125,9 +126,9 @@
 # False Son
 
 - Growth now also counts shield at 50% effectiveness.
-- **Club of the Forsaken:** fixes the falling-slam proc coefficient setting the charged club attack proc coefficent to 1.5.
+- **Club of the Forsaken:** fixes the falling-slam proc coefficient setting the charged club attack proc coefficient to 1.5.
 - Both utility skills can be used while sprinting and alongside Club or Laser attacks. Movement-speed range scaling is reduced to 50%.
-- **Laser of the Father:** base damage increased and proc coeficent increased to 0.7. Can be hled for 2 seconds longer at base.
+- **Laser of the Father:** base damage increased and proc coefficient increased to 0.7. Can be held for 2 seconds longer at base.
 
 # CHEF
 
@@ -161,7 +162,6 @@
 
 # Acolyte
 
-- **N'kuhana's Grace:** grants 2% attack speed per 1% maximum health held as recoverable health (Up from 1%).
 - **Soul Jar:** has a 5-second cooldown. Haunt deals 25% damage every 0.5 seconds (instead of 16.66% every 0.333 seconds). Wights seek targets within 128 metres (up from 40) and deal 50% damage (down from 100%).
 - **Bola Throw:** returns 200% of damage dealt to extracted souls. (up from 100%)
 - **Blade Sling:** now stuns on hit as the description implied.
@@ -174,4 +174,4 @@
 - Prevents Heresy items from being removed and removes their negative stacking penalties.
 - Allows Shadowfade to be cancelled early and fixes regeneration multipliers.
 - With Moffein's Heretic installed - Compatibility base stats default to 110 HP, 12 damage and 1 HP regeneration.
-- Heresy skill changes are listed on the four Heresy item pages.
+- Heresy skill changes are listed under their items on the Lunar page.

@@ -17,6 +17,8 @@ namespace Tweaks.Stages
     {
         private static ConfigEntry<bool> enabled, rewards, keepPillars, balanced, eachType, stopEnemies, frog;
         private static ConfigEntry<int> required, maximum;
+        private static ConfigEntry<bool> scalePillarCredits;
+        private static ConfigEntry<float> pillarCreditIncrease, extraPillarScaling;
         private static ConfigEntry<bool> cauldrons;
         private static ConfigEntry<int> minimumCauldrons, maximumCauldrons;
         private static readonly ConfigEntry<int>[] guaranteedCauldrons = new ConfigEntry<int>[3];
@@ -44,6 +46,13 @@ namespace Tweaks.Stages
                 "Stop ambient and pillar enemies from spawning once the jump pads unlock. Boss encounters and the escape sequence are unaffected. Vanilla: False.");
             frog = ModConfig.BindBool(section, "Frog Leads To Void Locus", true,
                 "The Glass Frog's portal leads to Void Locus. Vanilla: False.");
+
+            scalePillarCredits = ModConfig.BindBool(section, "Scale Pillar Enemy Credits", true,
+                "Increase enemy spawning credits for each subsequent pillar. Only affects that pillar's encounter. Vanilla: False.");
+            pillarCreditIncrease = ModConfig.Bind(section, "Enemy Credit Increase Per Pillar (%)", 25f,
+                new ConfigDescription("Additional percentage of the first pillar's credit budget per subsequent pillar. Vanilla: 0.", new AcceptableValueRange<float>(0f, 1000f)));
+            extraPillarScaling = ModConfig.Bind(section, "Extra Pillar Credit Increase Multiplier", 2f,
+                new ConfigDescription("Multiply the per-pillar increase for each pillar beyond the required count. 2 doubles the increase; 1 keeps the normal increase.", new AcceptableValueRange<float>(1f, 100f)));
 
             const string cauldronSection = section + " - Cauldrons";
             cauldrons = ModConfig.BindBool(cauldronSection, "Enabled", true, "Enable Commencement cauldron changes.");
@@ -79,6 +88,8 @@ namespace Tweaks.Stages
             Patch(harmony, typeof(HoldoutZoneController), "Start", nameof(ConfigureHoldout));
             Patch(harmony, typeof(HoldoutZoneController), "DoUpdate", nameof(BeforeHoldoutUpdate));
             Patch(harmony, typeof(CombatDirector), "AttemptSpawnOnTarget", nameof(BeforeEnemySpawn));
+            Patch(harmony, typeof(MoonBatteryActive), "OnEnter", null, nameof(PillarStarted));
+            Patch(harmony, typeof(MoonBatteryActive), "OnExit", nameof(PillarEnded));
             Patch(harmony, typeof(EscapeSequenceController.EscapeSequenceMainState), "OnEnter", null, nameof(EscapeStarted));
             Patch(harmony, typeof(FrogController), "Pet", nameof(BeforePet), nameof(AfterPet), nameof(EndPet));
             SceneDirector.onPostPopulateSceneServer += AfterPopulate;
@@ -243,6 +254,7 @@ namespace Tweaks.Stages
             internal MoonBatteryMissionController Owner;
             internal HoldoutZoneController[] Zones;
             internal EntityStateMachine[] Pillars, Elevators;
+            internal readonly Dictionary<HoldoutZoneController, int> EncounterOrder = new Dictionary<HoldoutZoneController, int>();
             internal readonly HashSet<HoldoutZoneController> Completed = new HashSet<HoldoutZoneController>();
             internal readonly List<CombatDirector> PausedAmbient = new List<CombatDirector>();
             internal int Types, Needed, RequiredTypes;
@@ -309,6 +321,31 @@ namespace Tweaks.Stages
                 if (zone.gameObject.scene == director.gameObject.scene) ConfigureHoldout(zone);
         }
 
+        private static void PillarStarted(MoonBatteryActive __instance)
+        {
+            if (!NetworkServer.active || !Apply(__instance.gameObject)) return;
+            var owner = MoonBatteryMissionController.instance;
+            var mission = owner ? owner.GetComponent<Mission>() : null;
+            var zone = __instance.GetComponent<HoldoutZoneController>();
+            if (!mission || !zone) return;
+            if (!mission.EncounterOrder.TryGetValue(zone, out int previous))
+            {
+                previous = mission.EncounterOrder.Count;
+                mission.EncounterOrder.Add(zone, previous);
+            }
+            int needed = mission.Needed;
+            foreach (var director in zone.GetComponentsInChildren<CombatDirector>(true))
+                HoldoutDirectorScaling.Begin(director, () => Apply(zone.gameObject) && ModConfig.Get(scalePillarCredits)
+                    ? HoldoutDirectorScaling.Multiplier(previous, needed, ModConfig.Get(pillarCreditIncrease), ModConfig.Get(extraPillarScaling)) : 1f);
+        }
+
+        private static void PillarEnded(MoonBatteryActive __instance)
+        {
+            if (!NetworkServer.active) return;
+            foreach (var director in __instance.gameObject.GetComponentsInChildren<CombatDirector>(true))
+                HoldoutDirectorScaling.End(director);
+        }
+
         private static bool BeforePillarCharged(MoonBatteryMissionController __instance, HoldoutZoneController __0)
         {
             Mission state = __instance.GetComponent<Mission>();
@@ -338,14 +375,8 @@ namespace Tweaks.Stages
                 foreach (EntityStateMachine pillar in state.Pillars)
                     if (pillar && !state.Completed.Contains(pillar.GetComponent<HoldoutZoneController>()) &&
                         !(pillar.state is MoonBatteryComplete)) pillar.SetNextState(new MoonBatteryDisabled());
-            if (ModConfig.Get(stopEnemies))
-                foreach (CombatDirector director in UnityEngine.Object.FindObjectsOfType<CombatDirector>())
-                    if (AmbientOrPillar(director) && !ActivePillarDirector(state, director))
-                    {
-                        if (director.enabled && Kind(director.gameObject) < 0) state.PausedAmbient.Add(director);
-                        director.monsterCredit = 0f;
-                        director.enabled = false;
-                    }
+            // Pause through BeforeEnemySpawn instead of zeroing credits or
+            // disabling event directors that a later optional pillar will reuse.
         }
 
         private static void EscapeStarted()
@@ -365,7 +396,7 @@ namespace Tweaks.Stages
 
         // An optional pillar keeps its own encounter while ambient spawning stays paused.
         private static bool ActivePillarDirector(Mission mission, CombatDirector director) =>
-            mission.Pillars.Any(pillar => pillar && pillar.gameObject == director.gameObject &&
+            mission.Pillars.Any(pillar => pillar && (director.transform == pillar.transform || director.transform.IsChildOf(pillar.transform)) &&
                 pillar.state is MoonBatteryActive && !mission.Completed.Contains(pillar.GetComponent<HoldoutZoneController>()));
 
         private static bool BeforeEnemySpawn(CombatDirector __instance, ref bool __result)

@@ -321,7 +321,24 @@ namespace Tweaks.Survivors
             locator.passiveSkill.enabled = true;
             locator.passiveSkill.skillNameToken = "3QS_HERETIC_PASSIVE_NAME";
             locator.passiveSkill.skillDescriptionToken = "3QS_HERETIC_PASSIVE_DESCRIPTION";
-            if (!locator.passiveSkill.icon) locator.passiveSkill.icon = RoR2Content.Items.LunarPrimaryReplacement.pickupIconSprite;
+            if (!locator.passiveSkill.icon)
+            {
+                ItemDef iconItem = RoR2Content.Items.LunarPrimaryReplacement;
+                locator.passiveSkill.icon = iconItem.GetIcon();
+                var iconReference = iconItem.GetIconReference();
+                if (!locator.passiveSkill.icon && iconReference != null && iconReference.RuntimeKeyIsValid())
+                {
+                    // Keep the addressable loaded while this passive uses its sprite.
+                    var iconHandle = Addressables.LoadAssetAsync<Sprite>(iconReference.RuntimeKey);
+                    iconHandle.Completed += operation =>
+                    {
+                        if (locator && !locator.passiveSkill.icon && operation.Status == UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationStatus.Succeeded)
+                            locator.passiveSkill.icon = operation.Result;
+                        else
+                            Addressables.Release(operation);
+                    };
+                }
+            }
             S.SetText(locator.passiveSkill.skillNameToken, () => "Nevermore");
             S.SetText(locator.passiveSkill.skillDescriptionToken, PassiveDescription);
             if (moffeinInstalled)

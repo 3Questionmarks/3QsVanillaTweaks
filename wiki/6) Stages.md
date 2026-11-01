@@ -102,9 +102,11 @@
 - Completed pillars award items, and unused pillars remain available after unlocking the jump pads.
 - Reward odds are 50% Common, 20% Uncommon, 5% Legendary, 15% Lunar and 10% Pearl. Pearl rewards have a 20% chance to become Irradiant Pearls.
 - Pillars charge at full speed with one player inside. Mass uses a 30-metre radius and 60-second charge; Design and Soul use 20 metres and 30 seconds; Blood uses 20 metres and 10 seconds.
-- Stops ambient and pillar enemy spawns after unlocking the jump pads.
+- Stops ambient enemy spawns after unlocking the jump pads. Activating an extra pillar starts its own enemy encounter; Mithrix's fight encounters remain available.
 - Spawns 6–12 cauldrons, including at least 3 Uncommon, 2 Legendary and 1 Common.
 - The Glass Frog's portal leads to Void Locus.
+- Each enemy kill adds **1%** pillar charge.
+- Each subsequent pillar gains another **25%** of the first encounter's enemy-spawning credits. Each pillar beyond the required count adds **50%** instead.
 
 # Void Fields
 
@@ -119,10 +121,12 @@
 - Spawns 4–8 signals and requires 4 to open the portal.
 - Signals charge at full speed with one player inside, using a 30-metre radius and 60-second charge.
 - Each completed signal awards a Void Potential per player.
-- Unused signals remain available after the portal opens, and enemy spawning stops.
+- Unused signals remain available after the portal opens. Enemy spawning stops between encounters, but restarts when an extra signal is activated.
 - Each choice rolls 40% Common, 30% Uncommon, 5% Legendary, 10% Void Common, 10% Void Uncommon or 5% Void Legendary.
 - Adds a Void shop with pools trading 2 Uncommon items for a Void Common, 3 Common items for a Void Uncommon, or 5 Uncommon items for a Void Legendary.
 - The Void Legendary pool also accepts one Legendary item as an alternative.
+- Each enemy kill adds **1%** signal charge.
+- Each subsequent signal gains another **25%** of the first encounter's enemy-spawning credits. Each signal beyond the required count adds **50%** instead.
 
 # (Secret Hallowed Concepts Realm)
 

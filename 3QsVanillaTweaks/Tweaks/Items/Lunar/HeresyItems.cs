@@ -21,7 +21,7 @@ using LG = Tweaks.ModCompatibility.LookingGlassSkillStats;
 
 namespace Tweaks.Items.Lunar
 {
-    internal static class HeresyItems
+    internal static partial class HeresyItems
     {
         private sealed class Profile
         {
@@ -113,73 +113,12 @@ namespace Tweaks.Items.Lunar
         }
         private static void BindSpecific(Profile p)
         {
-            int i = p.Index;
-            float cooldown = i == 0 ? 2f : i == 1 ? 5f : i == 2 ? 0f : 8f;
-            p.Number("Cooldown Per Stack", cooldown, cooldown, "Additional cooldown seconds for each item after the first. First-copy cooldown is configured under the skill.", false);
-            if (i == 0)
+            switch (p.Index)
             {
-                p.Flag("Rapid", false, false, "Cooldown is reduced by attack speed. Overrides Moffein Heretic's Visions attack-speed setting.", false);
-                p.Number("Initial Hit Damage Per Stack (%)", 0f, 0f, "Additional base-damage percentage points on impact per extra item.", false);
-                p.Number("Detonation Damage Per Stack (%)", 0f, 0f, "Additional base-damage percentage points on detonation per extra item.", false);
-                p.Number("Charges Per Stack", 12f, 12f, "Additional charges per extra item, rounded down.", false);
-                p.Projectile = FireLunarNeedle.projectilePrefab;
-                RequireProjectile(p);
-                p.Number("Initial Hit Damage (%)", 5f, 5f, "Impact damage as a percentage of base damage.");
-                p.Number("Initial Hit Proc Coefficient", .1f, .1f, "Proc coefficient of the initial impact.");
-                p.Number("Detonation Damage (%)", 120f, 120f, "Detonation damage as a percentage of base damage.");
-                p.Number("Proc Coefficient", NativeExplosionProc(p), NativeExplosionProc(p), "Detonation proc coefficient.");
-                p.Number("Damage Interval", FireLunarNeedle.baseDuration, FireLunarNeedle.baseDuration, "Minimum time between shots before attack speed.", min: .001f);
-                var steering = p.Projectile.GetComponent<ProjectileSteerTowardTarget>();
-                if (!steering) throw new InvalidOperationException("Hungering Gaze steering component was not found.");
-                p.Number("Tracking Aggression", steering.rotationSpeed * 2f, steering.rotationSpeed, "Homing turn rate in degrees per second; default is twice vanilla.");
-                BindProjectileBasics(p);
-            }
-            if (i == 1)
-            {
-                p.Number("Damage Per Stack (%)", 0f, 0f, "Additional base-damage percentage points per periodic hit per extra item.", false);
-                p.Number("Explosion Damage Per Stack (%)", 0f, 0f, "Additional base-damage percentage points on explosion per extra item.", false);
-                p.Number("Root Duration Per Stack", 3f, 3f, "Additional root seconds per extra item.", false);
-                object sample = EntityStateCatalog.InstantiateState(typeof(ThrowLunarSecondary));
-                p.Projectile = S.Read(sample, "projectilePrefab") as GameObject;
-                RequireProjectile(p);
-                p.Number("Damage (%)", 175f, 175f, "Damage per periodic hit as a percentage of base damage.");
-                p.Number("Damage Interval", .2f, .2f, "Time between repeated hits in seconds.", min: .001f);
-                p.Number("Explosion Damage (%)", 700f, 700f, "Explosion damage as a percentage of base damage.");
-                p.Number("Proc Coefficient", NativeProc(p), NativeProc(p), "Proc coefficient per periodic hit.");
-                p.Number("Explosion Proc Coefficient", NativeExplosionProc(p), NativeExplosionProc(p), "Proc coefficient of the final explosion.");
-                p.Number("Root Duration", 3f, 3f, "First-copy root duration in seconds.");
-                p.Number("Minimum Velocity", S.Value(sample, "minSpeed"), S.Value(sample, "minSpeed"), "Projectile launch speed at minimum charge in metres per second.");
-                p.Number("Maximum Velocity", S.Value(sample, "maxSpeed"), S.Value(sample, "maxSpeed"), "Projectile launch speed at full charge in metres per second.");
-                p.Number("Charge Duration", S.Value(p.Skill.Sample, "baseDuration", 1f), S.Value(p.Skill.Sample, "baseDuration", 1f), "Time required to fully charge before attack speed.", min: .001f);
-                p.Number("Minimum Charge Duration", S.Value(p.Skill.Sample, "minChargeDuration", .5f), S.Value(p.Skill.Sample, "minChargeDuration", .5f), "Minimum time before releasing a charged shot.");
-                p.Number("Throw Duration", S.Value(sample, "baseDuration", .2f), S.Value(sample, "baseDuration", .2f), "Throw animation time before attack speed.", min: .001f);
-                p.Flag("Show Damage Per Tick", true, false, "Show damage per hit rather than damage per second.");
-                BindProjectileBasics(p);
-            }
-            if (i == 2)
-            {
-                p.Number("Movement Speed Per Stack (%)", 0f, 0f, "Additional movement-speed percentage points per extra item.", false);
-                p.Number("Heal Per Stack (%)", 1.5f, 0f, "Additional percentage of maximum health restored per interval per extra item.", false);
-                p.Number("Duration Per Stack", 3f, 3f, "Additional duration seconds per extra item.", false);
-                p.Number("Movement Speed Boost (%)", 30f, (GhostUtilitySkillState.moveSpeedCoefficient - 1f) * 100f, "Movement-speed boost while intangible.");
-                p.Number("Heal Per Interval (%)", 1.5f, GhostUtilitySkillState.healFractionPerTick * 100f, "Percentage of maximum health healed each tick.");
-                p.Number("Interval", .2f, 1f / Math.Max(.001f, GhostUtilitySkillState.healFrequency), "Seconds between healing ticks.", min: .001f);
-                p.Number("Duration", 3f, GhostUtilitySkillState.baseDuration, "First-copy duration in seconds.", min: .001f);
-                p.Flag("Can Cancel", false, false, "Press utility again after releasing it to cancel early. Heretic's passive can independently enable this.");
-                p.Flag("Cleanses Debuffs", true, false, "Cleanse debuffs, damage over time and stun on activation. Keeps positive buffs and cooldown debuffs, including bands.");
-            }
-            if (i == 3)
-            {
-                p.Number("Ruin Duration Per Stack", 20f, 0f, "Additional Ruin debuff seconds per extra item.", false);
-                p.Number("Ruin Damage Per Stack (%)", 0f, 0f, "Additional base explosion damage percentage points per extra item.", false);
-                p.Number("Ruin Damage Per Debuff Stack Per Stack (%)", 0f, 0f, "Additional damage percentage points per Ruin debuff stack per extra item.", false);
-                p.Number("Damage (%)", 300f, Detonate.baseDamageCoefficient * 100f, "Base detonation damage percentage, before Ruin debuff stacks.");
-                p.Number("Ruin Debuff Per Stack Extra Damage (%)", 120f, Detonate.damageCoefficientPerStack * 100f, "Additional damage percentage per Ruin debuff stack.");
-                p.Number("Ruin Debuff Duration", 20f, 10f, "First-copy Ruin debuff duration in seconds.");
-                p.Number("Proc Coefficient", 1f, 1f, "Proc coefficient of the detonation.");
-                p.Number("Orb Speed", 120f, 120f, "Detonation orb travel speed in metres per second.");
-                p.Flag("Can Apply Ruin On Cooldown", false, false, "Apply Ruin when the skill has no stocks ready.");
-                p.Flag("Reapplying Resets Duration", true, false, "A new Ruin stack refreshes the timers of existing Ruin stacks.");
+                case 0: BindVisionsOfHeresy(p); break;
+                case 1: BindHooksOfHeresy(p); break;
+                case 2: BindStridesOfHeresy(p); break;
+                case 3: BindEssenceOfHeresy(p); break;
             }
         }
         private static void RequireProjectile(Profile p)
@@ -503,7 +442,9 @@ namespace Tweaks.Items.Lunar
             if (p.Index == 0) return (p.B("Rapid") ? S.Utility("Rapid. ") : "") + text + "Fire tracking shards that hit for " + D(V(p, "Initial Hit Damage (%)", "Initial Hit Damage Per Stack (%)", totals)) + " and detonate for " + D(V(p, "Detonation Damage (%)", "Detonation Damage Per Stack (%)", totals)) + ".";
             if (p.Index == 1)
             {
-                string damage = p.B("Show Damage Per Tick") ? D(V(p, "Damage (%)", p.Index == 3 ? "Ruin Damage Per Stack (%)" : "Damage Per Stack (%)", totals)) + " every " + S.Utility(N(p.F("Damage Interval")) + " seconds") : S.Damage(N(V(p, "Damage (%)", p.Index == 3 ? "Ruin Damage Per Stack (%)" : "Damage Per Stack (%)", totals) / p.F("Damage Interval")) + "% damage per second") + " (" + D(V(p, "Damage (%)", "Damage Per Stack (%)", totals)) + " every " + S.Utility(N(p.F("Damage Interval")) + " seconds") + ")";
+                string damage = p.B("Show Damage Per Tick")
+                    ? D(V(p, "Damage (%)", "Damage Per Stack (%)", totals)) + " every " + S.Utility(N(p.F("Damage Interval")) + " seconds")
+                    : S.Damage(N(V(p, "Damage (%)", "Damage Per Stack (%)", totals) / p.F("Damage Interval")) + "% damage per second");
                 return text + "Charge up a ball of blades that repeatedly deals " + damage + ". After a delay, explode for " + D(V(p, "Explosion Damage (%)", "Explosion Damage Per Stack (%)", totals)) + " and " + S.Damage("root") + " enemies for " + S.Utility(N(V(p, "Root Duration", "Root Duration Per Stack", totals)) + " seconds") + ".";
             }
             if (p.Index == 2) return text + "Fade away, becoming " + S.Utility("intangible") + " and gaining " + S.Utility(N(V(p, "Movement Speed Boost (%)", "Movement Speed Per Stack (%)", totals)) + "% movement speed") + ". <style=cIsHealing>Heal for " + N(V(p, "Heal Per Interval (%)", "Heal Per Stack (%)", totals)) + "% of your maximum health</style> every " + S.Utility(N(p.F("Interval")) + " seconds") + " for " + S.Utility(N(V(p, "Duration", "Duration Per Stack", totals)) + " seconds") + "." + (p.B("Cleanses Debuffs") ? " <style=cIsUtility>Cleanse debuffs</style> on activation." : "") + (p.B("Can Cancel") ? " Reactivate to cancel." : "");
@@ -517,7 +458,9 @@ namespace Tweaks.Items.Lunar
                 text += "Fire tracking shards for " + D(p.F("Initial Hit Damage (%)")) + Bonus(p, "Initial Hit Damage Per Stack (%)", "% damage") + " that detonate for " + D(p.F("Detonation Damage (%)")) + Bonus(p, "Detonation Damage Per Stack (%)", "% damage") + ". Hold up to " + S.Utility(p.Definition.baseMaxStock + " charges") + Bonus(p, "Charges Per Stack", "") + ".";
             if (p.Index == 1)
             {
-                string damage = p.B("Show Damage Per Tick") ? D(p.F("Damage (%)")) + " every " + S.Utility(N(p.F("Damage Interval")) + " seconds") : S.Damage(N(p.F("Damage (%)") / p.F("Damage Interval")) + "% damage per second") + " (" + D(p.F("Damage (%)")) + " every " + S.Utility(N(p.F("Damage Interval")) + " seconds") + ")";
+                string damage = p.B("Show Damage Per Tick")
+                    ? D(p.F("Damage (%)")) + " every " + S.Utility(N(p.F("Damage Interval")) + " seconds")
+                    : S.Damage(N(p.F("Damage (%)") / p.F("Damage Interval")) + "% damage per second");
                 text += "Charge a ball of blades that deals " + damage + Bonus(p, "Damage Per Stack (%)", "% damage per hit") + ". Explode for " + D(p.F("Explosion Damage (%)")) + Bonus(p, "Explosion Damage Per Stack (%)", "% damage") + " and " + S.Damage("root") + " enemies for " + S.Utility(N(p.F("Root Duration")) + " seconds") + Bonus(p, "Root Duration Per Stack", "s") + ".";
             }
             if (p.Index == 2)

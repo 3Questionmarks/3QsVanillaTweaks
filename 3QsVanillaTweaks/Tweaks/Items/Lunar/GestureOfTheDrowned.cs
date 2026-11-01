@@ -1,92 +1,106 @@
-using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using BepInEx.Configuration;
 using HarmonyLib;
-using Mono.Cecil.Cil;
-using MonoMod.Cil;
 using RoR2;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
-using ModConfig = Config.ConfigManager;
-
+using C = Config.ConfigManager;
+using R = Tweaks.Items.Uncommon.UncommonConfig;
+using U = Tweaks.Items.Uncommon.UncommonItemSupport;
+using A = ThreeQsVanillaTweaks.ReflectionTools;
 namespace Tweaks.Items.Lunar
 {
     internal static class GestureOfTheDrowned
     {
-        private const string Section = "Items - Lunar - Gesture of the Drowned";
-        private static ConfigEntry<bool> enabled;
-        private static ConfigEntry<bool> automaticUse;
-        private static ConfigEntry<float> firstCooldown;
-        private static ConfigEntry<float> extraCooldown;
-        private static ConfigEntry<bool> pauseBazaar;
-        private static ConfigEntry<bool> pauseExchange;
-
+        static R c;
+        static ConfigEntry<bool> pauseBazaar, pauseExchange;
+        static readonly MethodInfo perform = A.Method(typeof(EquipmentSlot), "PerformEquipmentAction");
         internal static void Init()
         {
-            enabled = ModConfig.BindBool(Section, "Enabled", true, "Enable configurable Gesture effects.");
-            automaticUse = ModConfig.BindBool(Section, "Automatically Use Equipment", true,
-                "Automatically activate ready equipment outside excluded stages.");
-            firstCooldown = ModConfig.Bind(Section, "First Stack Cooldown Multiplier", 0.5f,
-                "Cooldown scale of the first Gesture.");
-            extraCooldown = ModConfig.Bind(Section, "Additional Stack Cooldown Multiplier", 0.85f,
-                "Additional multiplicative cooldown scale for each extra Gesture.");
-
-            // Keep the existing config keys so users do not lose their settings.
-            // Despite the legacy names, these suppress automatic use, NOT cooldown progression.
-            pauseBazaar = ModConfig.BindBool(Section, "Pause Cooldowns in Bazaar Between Time", true,
-                "Prevent Gesture from automatically using ready equipment in the Bazaar. ");
-            pauseExchange = ModConfig.BindBool(Section, "Pause Cooldowns in Computational Exchange", true,
-                "Prevent Gesture from automatically using ready equipment in Computational Exchange. ");
-
-            var scale = AccessTools.Method(typeof(Inventory), "CalculateEquipmentCooldownScale");
-            if (scale != null)
-                new Harmony("3Questionmarks.3QsVanillaTweaks.GestureOfTheDrowned")
-                    .Patch(scale, postfix: new HarmonyMethod(typeof(GestureOfTheDrowned), nameof(CooldownScalePostfix)));
-            else
-                Debug.LogError("[3QsVanillaTweaks] Gesture: CalculateEquipmentCooldownScale method not found.");
-
-            // Auto activation actually occurs in MyFixedUpdate, not FixedUpdate.
-            // Never intercept Inventory.UpdateEquipment: cooldowns must keep ticking.
-            IL.RoR2.EquipmentSlot.MyFixedUpdate += PatchAutomaticUse;
+            U.Ensure(); c = new R("Gesture of the Drowned", "AutoCastEquipment", true, "Lunar");
+            c.Pair("Equipment Cooldown Reduction (%)", 25, 25, "Multiplicative cooldown reduction per item. Vanilla: 50% first stack, 15% each extra.");
+            c.B("Automatically Use Equipment", true, "Automatically activate ready equipment outside excluded stages. Vanilla: true.");
+            c.Pair("Equipment Failure Chance (%)", 0, 10, "Chance to spend a ready charge without activating equipment or equipment-use effects. Vanilla: 0%.");
+            pauseBazaar = C.BindBool(c.Section, "Pause Cooldowns in Bazaar Between Time", true, "Prevent automatic equipment use in the Bazaar; cooldowns still progress.");
+            pauseExchange = C.BindBool(c.Section, "Pause Cooldowns in Computational Exchange", true, "Prevent automatic equipment use in Computational Exchange; cooldowns still progress.");
+            if (c.Enabled.Value)
+            {
+                U.Patch(typeof(Inventory), "CalculateEquipmentCooldownScale", typeof(GestureOfTheDrowned), postfix: nameof(Cooldown));
+                U.Harmony.Patch(A.Method(typeof(EquipmentSlot), "MyFixedUpdate"), transpiler: new HarmonyMethod(typeof(GestureOfTheDrowned), nameof(AutoIL)));
+                U.Harmony.Patch(A.Method(typeof(EquipmentSlot), "Execute"), transpiler: new HarmonyMethod(typeof(GestureOfTheDrowned), nameof(FailureIL)));
+                var all = A.Method(typeof(EquipmentSlot), "ExecuteAllIfReady");
+                if (all != null) U.Harmony.Patch(all, transpiler: new HarmonyMethod(typeof(GestureOfTheDrowned), nameof(FailureIL)));
+            }
+            c.Text(Description, () => "Reduce equipment cooldown" + (c.B("Automatically Use Equipment") ? "... <style=cIsHealth>but automatically activate your equipment.</style>" : "."));
         }
-
-        private static bool IsAutoUseBlockedHere()
+        static string Description()
+        {
+            string text = "Reduce <style=cIsUtility>equipment cooldowns</style> by " + c.V("Equipment Cooldown Reduction (%)", "%", "cIsUtility") + ".";
+            if (c.B("Automatically Use Equipment")) text += " <style=cIsHealth>Equipment activates automatically.</style>";
+            if (c.F("Equipment Failure Chance (%)") != 0 || c.F("Equipment Failure Chance (%) Per Stack") != 0) text += " Equipment has a " + c.V("Equipment Failure Chance (%)", "%", "cIsHealth") + " chance to <style=cIsHealth>fail, consuming its charge</style>.";
+            return text;
+        }
+        static void Cooldown(Inventory __instance, ref float __result)
+        {
+            int n = c.Active && __instance ? __instance.GetItemCountEffective(c.Item) : 0; if (n == 0) return;
+            float wanted = Mathf.Max(.001f, 1 - c.F("Equipment Cooldown Reduction (%)") / 100) * Mathf.Pow(Mathf.Max(.001f, 1 - c.F("Equipment Cooldown Reduction (%) Per Stack") / 100), n - 1);
+            __result *= wanted / (.5f * Mathf.Pow(.85f, n - 1));
+        }
+        static int AutoCount(int count)
         {
             string scene = SceneManager.GetActiveScene().name.ToLowerInvariant();
-            if (ModConfig.Get(pauseBazaar) && (scene == "bazaar" || scene == "bazaarbetween")) return true;
-            return ModConfig.Get(pauseExchange) && scene == "computationalexchange";
+            bool blocked = C.Get(pauseBazaar) && (scene == "bazaar" || scene == "bazaarbetween") || C.Get(pauseExchange) && scene == "computationalexchange";
+            return c.Active && (!c.B("Automatically Use Equipment") || blocked) ? 0 : count;
         }
-
-        private static void CooldownScalePostfix(Inventory __instance, ref float __result)
+        static IEnumerable<CodeInstruction> AutoIL(IEnumerable<CodeInstruction> input)
         {
-            if (!ModConfig.Get(enabled) || !__instance) return;
-            int count = __instance.GetItemCountEffective(RoR2Content.Items.AutoCastEquipment);
-            if (count <= 0) return;
-            float vanilla = 0.5f * Mathf.Pow(0.85f, count - 1);
-            float configured = Mathf.Max(0.001f, ModConfig.Get(firstCooldown)) *
-                Mathf.Pow(Mathf.Max(0.001f, ModConfig.Get(extraCooldown)), count - 1);
-            __result *= configured / vanilla;
-        }
-
-        private static void PatchAutomaticUse(ILContext il)
-        {
-            var cursor = new ILCursor(il);
-            int patched = 0;
-            while (cursor.TryGotoNext(MoveType.After,
-                x => x.MatchLdsfld(typeof(RoR2Content.Items), "AutoCastEquipment"),
-                x => x.MatchCallvirt<Inventory>("GetItemCountEffective") ||
-                     x.MatchCall<Inventory>("GetItemCountEffective")))
+            bool pending = false; int found = 0;
+            foreach (var i in input)
             {
-                // A zero count disables Gesture's automatic-use checks while preserving
-                // manual justPressed / requestEquipmentFire checks and normal cooldowns.
-                cursor.EmitDelegate<Func<int, int>>(count =>
-                    ModConfig.Get(enabled) &&
-                    (!ModConfig.Get(automaticUse) || IsAutoUseBlockedHere()) ? 0 : count);
-                patched++;
+                yield return i;
+                if (i.operand is FieldInfo f && f.Name == "AutoCastEquipment") pending = true;
+                if (pending && i.operand is MethodInfo m && m.Name.StartsWith("GetItemCount"))
+                { yield return new CodeInstruction(OpCodes.Call, A.Method(typeof(GestureOfTheDrowned), nameof(AutoCount))); pending = false; found++; }
             }
-            if (patched < 2)
-                Debug.LogWarning("[3QsVanillaTweaks] Gesture: expected two auto-use sites in " +
-                    "EquipmentSlot.MyFixedUpdate, patched " + patched + ".");
+            if (found != 2) throw new InvalidOperationException("Gesture auto-use anchors changed: " + found);
+        }
+        static IEnumerable<CodeInstruction> FailureIL(IEnumerable<CodeInstruction> input, MethodBase __originalMethod)
+        {
+            var code = input.ToList(); var location = __originalMethod.GetMethodBody().LocalVariables.FirstOrDefault(v => v.LocalType.Name == "EquipmentLocation");
+            int found = 0;
+            foreach (var i in code)
+            {
+                if (i.operand is MethodInfo m && m == perform)
+                {
+                    var extra = location == null ? new CodeInstruction(OpCodes.Ldnull) : new CodeInstruction(OpCodes.Ldloc, (short)location.LocalIndex);
+                    extra.labels.AddRange(i.labels); i.labels.Clear(); yield return extra;
+                    if (location != null) yield return new CodeInstruction(OpCodes.Box, location.LocalType);
+                    i.opcode = OpCodes.Call; i.operand = A.Method(typeof(GestureOfTheDrowned), nameof(TryPerform)); found++;
+                }
+                yield return i;
+            }
+            if (found != 1) throw new InvalidOperationException("Gesture equipment activation anchor changed: " + __originalMethod.Name + " / " + found);
+        }
+        static object Read(object obj, string name) => A.Field(obj.GetType(), name)?.GetValue(obj) ?? A.Property(obj.GetType(), name)?.GetValue(obj, null);
+        static bool TryPerform(EquipmentSlot slot, EquipmentDef equipment, object location)
+        {
+            int n = c.Count(slot.characterBody); float chance = n == 0 ? 0 : Mathf.Clamp(c.Total("Equipment Failure Chance (%)", n), 0, 100);
+            if (NetworkServer.active && chance > 0 && U.Roll(chance, slot.characterBody))
+            {
+                location = location ?? Read(slot, "activeEquipmentLocation");
+                var methods = slot.inventory.GetType().GetMethods().Where(m => m.Name == "DeductEquipmentCharges" && m.GetParameters().Length == 2).ToArray();
+                var deduct = location == null ? methods.FirstOrDefault(m => m.GetParameters()[0].ParameterType == typeof(byte)) : methods.FirstOrDefault(m => m.GetParameters()[0].ParameterType.IsByRef && m.GetParameters()[0].ParameterType.GetElementType().IsInstanceOfType(location));
+                if (deduct == null) throw new MissingMethodException("Gesture cannot deduct the failed equipment charge.");
+                deduct.Invoke(slot.inventory, new object[] { location ?? Read(slot, "activeEquipmentSlot"), 1 });
+                A.Method(typeof(EquipmentSlot), "UpdateInventory")?.Invoke(slot, null);
+                return false; // Never call OnEquipmentExecuted, including global activation events.
+            }
+            return (bool)perform.Invoke(slot, new object[] { equipment });
         }
     }
 }

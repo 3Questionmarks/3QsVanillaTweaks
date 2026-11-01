@@ -59,8 +59,11 @@ namespace Tweaks.RoRArtifacts
             artifact.cachedName = "3QS_ARTIFACT_FLEETING_MOON";
             artifact.nameToken = "3QS_ARTIFACT_FLEETING_MOON_NAME";
             artifact.descriptionToken = "3QS_ARTIFACT_FLEETING_MOON_DESC";
+            // Runtime-generated sprites have no addressable asset reference.
+#pragma warning disable CS0618 // Intentional fallback for custom mod icons.
             artifact.smallIconSelectedSprite = CreateIcon(new Color(0.41f, 0.77f, 0.95f, 1f));
             artifact.smallIconDeselectedSprite = CreateIcon(new Color(0.28f, 0.31f, 0.40f, 1f));
+#pragma warning restore CS0618
             LanguageAPI.Add(artifact.nameToken, "Artifact of the Fleeting Moon");
             UpdateArtifactDescription();
             startingCoins.SettingChanged += (_, __) => UpdateArtifactDescription();

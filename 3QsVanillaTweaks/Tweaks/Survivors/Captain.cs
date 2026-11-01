@@ -82,8 +82,7 @@ namespace Tweaks.Survivors
             internal TeamIndex Team;
             internal float Damage, Crit;
             internal bool Active;
-            internal float Born, HackProgress, PausedLifetime;
-            internal float HackPauseStarted = -1f;
+            internal float Born, HackProgress;
             internal HoldoutZoneController Holdout;
             internal GameObject RangeVisual;
             internal GameObject LifetimeBox;
@@ -102,8 +101,8 @@ namespace Tweaks.Survivors
                 if (Holdout) { Holdout.enabled = C.Get(holdouts); Holdout.baseRadius = C.Get(beaconRadius); }
                 UpdateRangeCircle(this);
                 if (!NetworkServer.active) return;
-                bool hacking = Options.Kind == 3 && GetComponents<EntityStateMachine>().Any(m => m.state?.GetType().Name == "HackingInProgressState");
-                if (duration > 0f && ActiveAge() >= duration && !hacking) { NetworkServer.Destroy(gameObject); return; }
+                bool hacking = Options.Kind == 3 && GetComponents<EntityStateMachine>().Any(m => m.state?.GetType().Name == "HackingInProgressState" || m.state?.GetType().Name == "UnlockTargetState");
+                if (BeaconShouldExpire(ActiveAge(), duration, hacking)) { NetworkServer.Destroy(gameObject); return; }
                 if (Options.Kind == 0)
                     foreach (CharacterBody body in CharacterBody.readOnlyInstancesList)
                         if (body && body.healthComponent && body.healthComponent.alive && TeamComponent.GetObjectTeam(body.gameObject) == Team && Vector3.Distance(body.corePosition, transform.position) <= EffectiveRadius())
@@ -113,14 +112,7 @@ namespace Tweaks.Survivors
                         }
                 UpdateBeaconDaisy(this);
             }
-            internal float ActiveAge() => Math.Max(0f, Time.fixedTime - Born - PausedLifetime - (HackPauseStarted >= 0f ? Math.Max(0f, Time.fixedTime - HackPauseStarted) : 0f));
-            internal void PauseLifetime() { if (HackPauseStarted < 0f) HackPauseStarted = Time.fixedTime; }
-            internal void ResumeLifetime()
-            {
-                if (HackPauseStarted < 0f) return;
-                PausedLifetime += Math.Max(0f, Time.fixedTime - HackPauseStarted);
-                HackPauseStarted = -1f;
-            }
+            internal float ActiveAge() => Math.Max(0f, Time.fixedTime - Born);
             internal float EffectiveRadius() => Holdout && Holdout.enabled && Holdout.currentRadius > 0.01f ? Holdout.currentRadius : C.Get(beaconRadius);
         }
         private static readonly Dictionary<int, Profile> profiles = new Dictionary<int, Profile>();
@@ -212,6 +204,7 @@ namespace Tweaks.Survivors
                 {
                     SkillDef primary = AllSkills().First(d => d.activationState.stateType == State("ChargeCaptainShotgun"));
                     chargedDef = UnityEngine.Object.Instantiate(primary);
+                    chargedDef.icon = ChargedShotgunIcon(primary.icon);
                     ((ScriptableObject)chargedDef).name = chargedDef.skillName = "3QSChargedShotgun";
                     chargedDef.skillNameToken = "3QS_CAPTAIN_CHARGED_NAME"; chargedDef.skillDescriptionToken = "3QS_CAPTAIN_CHARGED_DESCRIPTION";
                     chargedDef.activationState = new SerializableEntityStateType(typeof(ChargedShotgunState));
@@ -384,8 +377,8 @@ namespace Tweaks.Survivors
             string s = Root + " - " + Names[5];
             showBeaconIndicators = C.BindBool(s, "Show Beacon Indicators", true, "Show beacon icons and cooldowns above the special skill.", clientSide: true);
             showBeaconSelectionIndicators = C.BindBool(s, "Show Beacon Selection Indicators", true, "Show beacon icons and cooldowns in the beacon selection menu.", clientSide: true);
-            indicatorOffsetX = C.Bind(s, "Beacon Indicator Horizontal Offset", 0f, "Horizontal position relative to the centre of the special skill icon. Positive values move right.", clientSide: true);
-            indicatorOffsetY = C.Bind(s, "Beacon Indicator Vertical Offset", 70f, "Height above the special skill icon. Positive values move up.", clientSide: true);
+            indicatorOffsetX = C.Bind(s, "Beacon Indicator Horizontal Offset", -20f, "Horizontal position relative to the centre of the special skill icon. Positive values move right.", clientSide: true);
+            indicatorOffsetY = C.Bind(s, "Beacon Indicator Vertical Offset", 80f, "Height above the special skill icon. Positive values move up.", clientSide: true);
             stageLimit = S.Int(s, "Stage Limit", 0, 1, "Uses of each equipped beacon per stage. 0 is unlimited. Each extra stock adds one use when limited.");
             sharedCooldown = S.Bool(s, "Both Beacons Share Cooldown", false, false, "Share stocks and cooldown between the two beacons when unlimited. Limited beacons share the cooldown between uses.");
             beaconRadius = S.Float(s, "Radius", 15f, 10f, "Beacon effect radius in metres.");
@@ -523,11 +516,6 @@ namespace Tweaks.Survivors
         private static void AfterState(EntityState __instance, MethodBase __originalMethod, Scope __state)
         {
             if (__state?.Target != null) { SetValue(__instance, "target", __state.Target); if (__originalMethod.Name == "OnEnter" && NetworkServer.active) CompleteHack(Beacon(__instance), __state.Target as PurchaseInteraction); __state.Target = null; }
-            if (__originalMethod.Name == "OnExit" && __instance.GetType().Name == "HackingInProgressState")
-            {
-                BeaconMarker ending = Beacon(__instance);
-                if (ending) ending.ResumeLifetime();
-            }
             if (__originalMethod.Name != "OnEnter") return;
             string name = __instance.GetType().Name;
             if (name.StartsWith("CallSupplyDrop", StringComparison.Ordinal) && IsCaptain(Body(__instance)))
@@ -541,7 +529,7 @@ namespace Tweaks.Survivors
                 }
             }
             BeaconMarker marker = Beacon(__instance); if (!marker) return;
-            if (marker.Options.Kind == 3 && name == "HackingInProgressState") { marker.HackProgress = 0f; marker.PauseLifetime(); }
+            if (marker.Options.Kind == 3 && name == "HackingInProgressState") marker.HackProgress = 0f;
             if (marker.Options.Kind == 3 && name == "UnlockTargetState") marker.HackProgress = 1f;
             if (__instance.GetType().Name == "HackingInProgressState" && Read(__instance, "target") is PurchaseInteraction printer && IsPrinter(printer))
             {
@@ -796,7 +784,7 @@ namespace Tweaks.Survivors
                 if (!switches[BeaconNames[i]].Value) continue;
                 var option = new BeaconOptions { Kind = i, Enabled = switches[BeaconNames[i]] };
                 string section = Root + " - " + BeaconNames[i];
-                option.Duration = S.Float(section, "Duration", i == 0 ? 45f : i == 1 ? 30f : i == 2 ? 90f : 60f, 0f, "Active duration in seconds. 0 is unlimited.");
+                option.Duration = S.Float(section, "Duration", i == 0 ? 30f : i == 1 ? 30f : i == 2 ? 45f : 30f, 0f, "Active duration in seconds. 0 is unlimited.");
                 beacons[i] = option;
                 foreach (SkillDef def in defs.Where(d => d.activationState.stateType == State(Calls[i])))
                 {
@@ -863,9 +851,10 @@ namespace Tweaks.Survivors
                 breakHackedPrinters = S.Bool(s, "Break Printers After Hacking", true, false, "Remove the displayed item and disable the printer after its free print.");
                 hackAll = S.Bool(s, "Hack All Multishop Segments", true, false, "Apply the hack to every terminal of a multishop.");
                 object sample = EntityStateCatalog.InstantiateState(DropState("HackingInProgressState"));
-                hackSpeed = S.Float(s, "Hacking Time For A Small Chest", Number(sample, "baseDuration", 15f), Number(sample, "baseDuration", 15f), "Seconds needed to hack an interactable costing as much as a small chest.", 0.001f);
+                hackSpeed = S.Float(s, "Hacking Time For A Small Chest", Number(sample, "baseDuration", 15f) * 3f, Number(sample, "baseDuration", 15f), "Seconds needed to hack an interactable costing as much as a small chest. Default: three times vanilla. Beacon lifetime continues counting down while hacking; an active hack can finish after expiry.", 0.001f);
                 hackCommand = C.Bind(s, "Chance To Replace With Command (%)", 15f, new ConfigDescription("Chance for an item from a hacked interactable to become a choice of the same rarity. Vanilla: 0.", new AcceptableValueRange<float>(0f, 100f)));
                 Patch(DropState("HackingMainState"), "PurchaseInteractionIsValidTarget", postfix: nameof(AfterHackTarget));
+                Patch(DropState("HackingMainState"), "FixedUpdate", nameof(BeforeHackingScan));
                 Patch(typeof(ChestBehavior), "ItemDrop", nameof(BeforeHackedChest), finalizer: nameof(AfterHackedDrop));
                 foreach (MethodInfo drop in typeof(ShopTerminalBehavior).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Where(m => m.Name == "DropPickup"))
                     Patch(typeof(ShopTerminalBehavior), "DropPickup", nameof(BeforeHackedTerminal), finalizer: nameof(AfterHackedDrop), args: drop.GetParameters().Select(p => p.ParameterType).ToArray());
@@ -1511,6 +1500,17 @@ namespace Tweaks.Survivors
             // The overhead hologram reads this separate, networked controller price.
             SetValue(multishop, "Networkcost", cost);
         }
+        internal static bool BeaconShouldExpire(float age, float duration, bool finishingHack) => BeaconExpired(age, duration) && !finishingHack;
+        internal static bool BeaconExpired(float age, float duration) => duration > 0f && age >= duration;
+        private static bool BeforeHackingScan(EntityState __instance)
+        {
+            BeaconMarker marker = Beacon(__instance);
+            if (!marker || !marker.Active || !marker.Options.Enabled.Value || !BeaconExpired(marker.ActiveAge(), C.Get(marker.Options.Duration))) return true;
+            // No new target after expiry, regardless of the order Unity updates
+            // the beacon marker and its state machine. Existing hacks finish.
+            if (NetworkServer.active) NetworkServer.Destroy(marker.gameObject);
+            return false;
+        }
         private static void AfterHackTarget(PurchaseInteraction purchaseInteraction, ref bool __result)
         {
             if (!purchaseInteraction) return;
@@ -1600,7 +1600,7 @@ namespace Tweaks.Survivors
         private static string BeaconDescription(BeaconOptions option)
         {
             string text = option.Kind == 0 ? "Heal all nearby allies for <style=cIsHealing>" + S.Number(C.Get(supportHeal)) + "% of their maximum health</style> every second." : option.Kind == 1 ? "<style=cIsUtility>Shock</style> nearby enemies every <style=cIsUtility>" + S.Number(C.Get(shockInterval)) + " seconds</style>, dealing " + S.Damage(S.Number(C.Get(shockDamage)) + "% damage") + "." : option.Kind == 2 ? "Recharge allies' equipment and skills when used, granting <style=cIsHealing>" + S.Number(C.Get(barrier)) + "% temporary barrier</style>." : "Hack nearby purchasable interactables, reducing their cost by <style=cIsUtility>" + S.Number(C.Get(hackDiscount)) + "%</style>.";
-            if (option.Kind == 3) text += " Its duration pauses while hacking.";
+            if (option.Kind == 3) text += " Its lifetime continues while hacking, but it will finish its current hack before expiring.";
             if (option.Kind == 3 && C.Get(hackCommand) > 0f)
                 text += " Items from hacked interactables have a <style=cIsUtility>" + S.Number(C.Get(hackCommand)) + "% chance</style> to become a <style=cIsUtility>Command Essence</style> of the same rarity.";
             if (option.Kind == 0)
@@ -1623,5 +1623,88 @@ namespace Tweaks.Survivors
             return b.ToString();
         }
         private static string BeaconExtra(BeaconOptions option) => "\nRadius: <style=cIsUtility>" + S.Number(C.Get(beaconRadius)) + "m</style>" + (option.Kind == 0 ? "\nBuff Decay: <style=cIsUtility>" + S.Number(C.Get(supportDecay)) + "s</style>" : option.Kind == 2 ? "\nUses: <style=cIsUtility>" + C.Get(resupplyUses) + "</style>" : "");
+        // A separate sprite keeps the original skill artwork untouched.
+        private static Sprite addedSkillIcon;
+        private static Sprite ChargedShotgunIcon(Sprite original)
+        {
+            if (addedSkillIcon) return addedSkillIcon;
+            if (!original) return original;
+            try { return addedSkillIcon = BuildChargedShotgunIcon(original); }
+            catch (Exception e)
+            {
+                ThreeQsVanillaTweaks.Log.Warning("3QSChargedShotgunIcon: retaining original icon because conversion failed: " + e.Message);
+                return original;
+            }
+        }
+
+        static Sprite BuildChargedShotgunIcon(Sprite original)
+        {
+            if (original.packed && original.packingRotation != SpritePackingRotation.None)
+                throw new InvalidOperationException("Unsupported rotated sprite atlas entry.");
+            const string name = "3QSChargedShotgunIcon";
+            // GPU readback also works for game textures imported without Read/Write.
+            Rect region = original.textureRect;
+            Vector2 offset = original.textureRectOffset;
+            int width = Mathf.RoundToInt(original.rect.width);
+            int height = Mathf.RoundToInt(original.rect.height);
+            int rw = Mathf.RoundToInt(region.width), rh = Mathf.RoundToInt(region.height);
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture temporary = null;
+            Texture2D readable = null, texture = null;
+            Sprite sprite = null;
+            try
+            {
+                temporary = RenderTexture.GetTemporary(original.texture.width, original.texture.height,
+                    0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(original.texture, temporary);
+                RenderTexture.active = temporary;
+                readable = new Texture2D(rw, rh, TextureFormat.RGBA32, false, false);
+                readable.ReadPixels(region, 0, 0, false);
+                readable.Apply(false, false);
+                Color[] source = readable.GetPixels();
+                Color[] pixels = new Color[width * height];
+                int ox = Mathf.RoundToInt(offset.x), oy = Mathf.RoundToInt(offset.y);
+                for (int y = 0; y < rh; y++)
+                for (int x = 0; x < rw; x++)
+                {
+                    Color pixel = source[y * rw + x];
+                    Color.RGBToHSV(pixel, out float hue, out float saturation, out float value);
+                    if (pixel.a > 0 && saturation > .2f && value > .12f)
+                    {
+                        if (hue < .20f || hue > .95f)
+                            hue = Mathf.Lerp(.61f, .51f, Mathf.Clamp01(hue / .20f));
+                        Color changed = Color.HSVToRGB(hue, saturation, value);
+                        changed.a = pixel.a;
+                        pixel = changed;
+                    }
+                    int dx = x + ox, dy = y + oy;
+                    if (dx < 0 || dx >= width || dy < 0 || dy >= height) continue;
+                    pixels[dy * width + dx] = pixel;
+                }
+                texture = new Texture2D(width, height, TextureFormat.RGBA32, false, false);
+                texture.name = name;
+                texture.filterMode = original.texture.filterMode;
+                texture.wrapMode = TextureWrapMode.Clamp;
+                texture.SetPixels(pixels);
+                texture.Apply(false, true);
+                Vector2 pivot = new Vector2(original.pivot.x / width, original.pivot.y / height);
+                sprite = Sprite.Create(texture, new Rect(0, 0, width, height), pivot,
+                    original.pixelsPerUnit, 0, SpriteMeshType.FullRect);
+                sprite.name = name;
+                return sprite;
+            }
+            catch
+            {
+                if (sprite) UnityEngine.Object.Destroy(sprite);
+                if (texture) UnityEngine.Object.Destroy(texture);
+                throw;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                if (temporary) RenderTexture.ReleaseTemporary(temporary);
+                if (readable) UnityEngine.Object.Destroy(readable);
+            }
+        }
     }
 }

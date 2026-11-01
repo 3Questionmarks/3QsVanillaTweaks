@@ -42,7 +42,7 @@ namespace Tweaks.Stages.Stage4
 
         private static void CaptureSceneChests(Scene scene)
         {
-            if (!NetworkServer.active || !Run.instance || SceneChests.ContainsKey(scene.handle)) return;
+            if (!ModConfig.Get(enabled) || !NetworkServer.active || !Run.instance || SceneChests.ContainsKey(scene.handle)) return;
             SceneDef definition = SceneCatalog.FindSceneDef(scene.name);
             if (!definition || definition.stageOrder != 4 || !SpawnRequirements.SceneAllowed(definition)) return;
             // Capture authored objects before Start methods generate random chests.
@@ -55,13 +55,16 @@ namespace Tweaks.Stages.Stage4
 
         private static void ClassifySceneChests(SceneDirector director)
         {
-            if (!NetworkServer.active || !Run.instance || !director || !SceneChests.TryGetValue(director.gameObject.scene.handle, out var authored)) return;
+            if (!ModConfig.Get(enabled) || !NetworkServer.active || !Run.instance || !director || !SceneChests.TryGetValue(director.gameObject.scene.handle, out var authored)) return;
+            // A boss-reward stage has no guaranteed chest to classify.
+            // Avoid loading chest assets just because the stage has order four.
+            if (!authored.Exists(IsLegendaryCandidate)) return;
             try
             {
                 // Resolve the asset after scene loading completes, using only the snapshot.
                 if (!legendaryTable)
                 {
-                    ChestBehavior prefab = StageInteractableAssets.Prefab("Chest3").GetComponent<ChestBehavior>();
+                    ChestBehavior prefab = LegendaryChestPrefab();
                     if (!prefab || !prefab.dropTable) throw new InvalidOperationException("Legendary chest drop table is unavailable.");
                     legendaryTable = prefab.dropTable;
                 }
@@ -71,6 +74,40 @@ namespace Tweaks.Stages.Stage4
                 Log.Info("Stage 4 legendary chests: recognised " + count + " fixed chest location(s) on " + director.gameObject.scene.name + ".");
             }
             catch (Exception e) { Log.Warning("Stage 4 legendary chest detection failed: " + e.Message); }
+        }
+
+        private static bool IsLegendaryCandidate(ChestBehavior chest)
+        {
+            if (!chest) return false;
+            string name = chest.gameObject.name;
+            if (name.StartsWith("GoldChest", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Chest3", StringComparison.OrdinalIgnoreCase)) return true;
+            string table = chest.dropTable ? chest.dropTable.name : "";
+            return string.Equals(table, "dtTier3", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(table, "dtGoldChest", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static ChestBehavior LegendaryChestPrefab()
+        {
+            foreach (string name in new[] { "GoldChest", "Chest3" })
+            {
+                try
+                {
+                    GameObject asset = StageInteractableAssets.Prefab(name);
+                    var chest = asset ? asset.GetComponent<ChestBehavior>() : null;
+                    if (chest && chest.dropTable) return chest;
+                }
+                catch (InvalidOperationException) { }
+            }
+            // Director spawn cards remain usable when prefab address keys change.
+            try
+            {
+                GameObject asset = StageInteractableAssets.Card("GoldChest", "RoR2.ChestBehavior").prefab;
+                var chest = asset ? asset.GetComponent<ChestBehavior>() : null;
+                if (chest && chest.dropTable) return chest;
+            }
+            catch (InvalidOperationException) { }
+            throw new InvalidOperationException("Legendary chest prefab/drop table is unavailable (GoldChest/Chest3).");
         }
 
         private static void BeforeDrop(ChestBehavior __instance, out int? __state)

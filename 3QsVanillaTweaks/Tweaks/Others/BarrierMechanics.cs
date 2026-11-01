@@ -18,8 +18,8 @@ namespace Tweaks.Others
     {
         internal enum DecayMode { Vanilla, VanillaScaled, PreCollective, CustomFormula }
         private const string Section = "Other - Barrier Mechanics";
-        private static ConfigEntry<bool> enabled, gate, preCurse;
-        private static ConfigEntry<float> maximum, multiplier;
+        private static ConfigEntry<bool> enabled, gate, limitGate, preCurse;
+        private static ConfigEntry<float> gateLimit, maximum, multiplier;
         private static ConfigEntry<DecayMode> decay;
         private static ConfigEntry<string> formula;
         private static readonly PropertyInfo maxBarrierProperty = AccessTools.Property(typeof(CharacterBody), "maxBarrier");
@@ -32,6 +32,8 @@ namespace Tweaks.Others
         {
             enabled = C.BindStartupBool(Section, "Enabled", true, "Enable general barrier changes. Restart to apply.");
             gate = C.BindBool(Section, "Barrier Gates HP", true, "Damage that breaks existing barrier cannot spill into shield or health. The next hit can damage the remaining pools normally. Vanilla: False.");
+            limitGate = C.BindBool(Section, "Limit Barrier Gating Damage", true, "Hits exceeding the configured multiple of current barrier bypass its gate. Vanilla: no barrier gate.");
+            gateLimit = C.Bind(Section, "Barrier Gate Maximum Damage Multiplier", 3f, new ConfigDescription("Gate only when damage reaching barrier is at most this multiple of its current amount. Exactly this amount still gates.", new AcceptableValueRange<float>(1f, 1000000f)));
             maximum = C.Bind(Section, "Max Barrier (%)", 100f, new ConfigDescription("Maximum barrier as a percentage of maximum combined health and shield. Vanilla: 100%.", new AcceptableValueRange<float>(0f, 1000000f)));
             preCurse = C.BindBool(Section, "Max Barrier Uses Pre-Curse HP", true, "Calculate maximum barrier before HP curse reduces maximum health and shield. Shields already exempt from curse are not counted twice. Vanilla: False.");
             decay = C.Bind(Section, "Barrier Decay Formula", DecayMode.Vanilla, "Vanilla: current game formula. VanillaScaled: multiply the complete vanilla formula. PreCollective: maxBarrier / 30 per second. CustomFormula: evaluate the custom expression; invalid results fall back to vanilla.");
@@ -57,8 +59,8 @@ namespace Tweaks.Others
             float shields = Math.Max(0f, shield) * (beforeCurse && shieldsCursed ? curse : 1f);
             return (hp + shields) * Math.Max(0f, percent) / 100f;
         }
-        internal static float SpillDamage(float damage, float barrier, bool gates) => gates && barrier > 0f ? 0f : damage - barrier;
-        private static float GateSpill(float damage, float barrier) => SpillDamage(damage, barrier, Active && C.Get(gate));
+        internal static float SpillDamage(float damage, float barrier, bool gates, bool limited = false, float limit = 3f) => gates && barrier > 0f && (!limited || damage <= barrier * limit) ? 0f : damage - barrier;
+        private static float GateSpill(float damage, float barrier) => SpillDamage(damage, barrier, Active && C.Get(gate), C.Get(limitGate), C.Get(gateLimit));
         private static bool GateBeforeOSP(bool eligible, HealthComponent health) => eligible && !(Active && C.Get(gate) && health.barrier > 0f);
         private static Exception FinalizeStats(CharacterBody __instance, Exception __exception)
         {

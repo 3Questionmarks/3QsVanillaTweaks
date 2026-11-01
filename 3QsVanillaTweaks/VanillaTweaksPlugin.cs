@@ -15,14 +15,19 @@ namespace ThreeQsVanillaTweaks
         public const string PluginAuthor = "3Questionmarks";
         public const string PluginName = "3QsVanillaTweaks";
         public const string PluginGUID = PluginAuthor + "." + PluginName;
-        public const string PluginVersion = "0.3.0";
+        public const string PluginVersion = "0.4.0";
 
         private void Awake()
         {
             Log.Init(Logger);
+            var startupTimer = System.Diagnostics.Stopwatch.StartNew();
             InitializeConfigManager();
+            Log.Info("[Startup] Config initialisation: " + startupTimer.Elapsed.TotalSeconds.ToString("F2") + " s.");
 
-            InitializeTweaks(false);
+            Tweaks.Items.Uncommon.UncommonNative.BeginRegistration();
+            try { InitializeTweaks(false); }
+            finally { Tweaks.Items.Uncommon.UncommonNative.FinishRegistration(); }
+            Log.Info("[Startup] Awake total: " + startupTimer.Elapsed.TotalSeconds.ToString("F2") + " s.");
 
             Log.Info("3QsVanillaTweaks initialized (artifact registration scheduled for Start).");
         }
@@ -105,13 +110,14 @@ namespace ThreeQsVanillaTweaks
                     continue;
                 }
 
+                var moduleTimer = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     initMethod.Invoke(null, null);
 
                     initialized++;
 
-                    Log.Info("Initialized tweak: " + type.Name);
+                    Log.Info("Initialized tweak: " + type.Name + " [Startup: " + moduleTimer.Elapsed.TotalMilliseconds.ToString("F0") + " ms]");
                 }
                 catch (Exception exception)
                 {

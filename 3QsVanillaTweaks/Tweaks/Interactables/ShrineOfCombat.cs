@@ -12,6 +12,7 @@ namespace Tweaks.Interactables
     internal static class ShrineOfCombat
     {
         private static ConfigEntry<bool> enabled;
+        private static ConfigEntry<float> goldReward;
         private static readonly ConfigEntry<float>[] chances = new ConfigEntry<float>[9];
         private static readonly System.Reflection.FieldInfo PurchaseCount = AccessTools.Field(typeof(ShrineCombatBehavior), "purchaseCount");
 
@@ -21,14 +22,26 @@ namespace Tweaks.Interactables
         {
             const string section = "Interactables - Shrine of Combat";
             enabled = ModConfig.BindBool(section, "Enabled", true, "Drop one copy of the same item per player when the shrine's monsters are defeated.");
+            goldReward = ModConfig.Bind(section, "Enemy Gold Reward (%)", 50f,
+                new ConfigDescription("Gold awarded by shrine enemies, as a percentage of their normal reward. Experience is unchanged. Vanilla: 100%.", new AcceptableValueRange<float>(0f, 100000f)));
             string[] labels = { "Common", "Uncommon", "Legendary", "Boss", "Lunar", "Void Common", "Void Uncommon", "Void Legendary", "Void Boss" };
             float[] defaults = { 65f, 34f, 1f, 0f, 0f, 0f, 0f, 0f, 0f };
             for (int i = 0; i < chances.Length; ++i)
                 chances[i] = ModConfig.Bind(section, labels[i] + " Reward Weight", defaults[i],
                     new ConfigDescription("Relative chance of a " + labels[i].ToLowerInvariant() + " reward. Set to 0 to exclude this rarity.", new AcceptableValueRange<float>(0f, 100f)));
-            new Harmony("3Questionmarks.3QsVanillaTweaks.Interactables.Combat").Patch(
+            var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Interactables.Combat");
+            harmony.Patch(AccessTools.Method(typeof(ShrineCombatBehavior), "AddShrineStack"),
+                prefix: new HarmonyMethod(typeof(ShrineOfCombat), nameof(BeforeActivation)));
+            harmony.Patch(
                 AccessTools.Method(typeof(ShrineCombatBehavior), "OnDefeatedServer"),
                 postfix: new HarmonyMethod(typeof(ShrineOfCombat), nameof(AfterDefeated)));
+        }
+
+        private static void BeforeActivation(ShrineCombatBehavior __instance)
+        {
+            if (!NetworkServer.active || !__instance) return;
+            ShrineEncounterRewards.ConfigureGold(__instance.GetComponent<CombatDirector>(),
+                () => ModConfig.Get(enabled) ? ModConfig.Get(goldReward) : 100f);
         }
 
         private static void AfterDefeated(ShrineCombatBehavior __instance)
@@ -62,13 +75,11 @@ namespace Tweaks.Interactables
             List<PickupIndex> chosen = selection.Evaluate(rng.nextNormalizedFloat);
             var pickupState = new UniquePickup(chosen[rng.RangeInt(0, chosen.Count)]);
             int players = run.participatingPlayerCount;
-            Vector3 position = __instance.transform.position + Vector3.up * 6f;
+            Bounds bounds = ShrineEncounterRewards.BoundsFor(__instance.gameObject);
+            float angle = rng.nextNormalizedFloat * 360f;
+            ShrineEncounterRewards.PlayRewardEffect(bounds.center);
             for (int i = 0; i < players; ++i)
-            {
-                Vector3 velocity = Quaternion.AngleAxis(360f * i / players, Vector3.up) * new Vector3(0f, 40f, 5f);
-                var info = new GenericPickupController.CreatePickupInfo { pickup = pickupState, position = position, rotation = Quaternion.identity };
-                PickupDropletController.CreatePickupDroplet(info, position, velocity);
-            }
+                ShrineEncounterRewards.Launch(pickupState, bounds, i, players, angle);
         }
     }
 }

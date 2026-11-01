@@ -74,7 +74,7 @@ namespace Tweaks.Others
         }
         private static bool Eligible(CharacterBody body)
         {
-            if (!body || !body.hasOneShotProtection) return false;
+            if (!body || ShieldMechanics.DisablesOneShotProtection(body) || !body.hasOneShotProtection) return false;
             if (!installed || !C.Get(enabled)) return body.hasOneShotProtection;
             HealthComponent health = body.healthComponent;
             if (!health || !health.alive || body.HasBuff(cooldownBuff)) return false;
@@ -91,6 +91,7 @@ namespace Tweaks.Others
         }
         private static bool BeforeDamage(HealthComponent __instance, DamageInfo damageInfo)
         {
+            if (ShieldMechanics.DisablesOneShotProtection(__instance.body)) return true;
             if (!NetworkServer.active || !installed || !C.Get(enabled) || !C.Get(allHits) || !states.TryGetValue(__instance, out ProtectionState state) || !WindowActive(Time.fixedTime, state.ImmuneUntil)) return true;
             damageInfo.rejected = true;
             return false;

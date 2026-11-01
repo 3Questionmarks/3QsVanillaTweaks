@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Text;
 using BepInEx.Configuration;
@@ -46,6 +47,8 @@ namespace Tweaks.Survivors
         [ThreadStatic] private static S.Skill aimOverride;
         [ThreadStatic] private static Orb arrivingOrb;
         [ThreadStatic] private static S.Skill ballistaBullet;
+        private static ConfigEntry<float> cycloneReturnSpeed, cycloneReturnDuration;
+        private static ConfigEntry<bool> cycloneCooldownOnReturn;
         [ThreadStatic] private static object cycloneThrow;
         private static readonly HashSet<RuntimeMethodHandle> entered = new HashSet<RuntimeMethodHandle>();
         private static readonly ConditionalWeakTable<object, BlinkData> blinks = new ConditionalWeakTable<object, BlinkData>();
@@ -176,7 +179,7 @@ namespace Tweaks.Survivors
         }
         private static void BindSkill(S.Skill s, int index)
         {
-            s.Bind(index == 3 ? 7f : index == 4 ? 6f : (float?)null, index == 3 ? 1 : (int?)null,
+            s.Bind(index == 3 ? 4.5f : index == 4 ? 6f : (float?)null, index == 3 ? 1 : (int?)null,
                 index == 2 || index == 3 || index == 4 ? true : (bool?)null, damage: false,
                 durationField: index == 4 || index == 5 ? "duration" : null, nativeConsumeOverride: index == 3 ? 1 : (int?)null);
             if (index < 2)
@@ -223,6 +226,13 @@ namespace Tweaks.Survivors
                 juggleGrace = S.Float(s.Section, "Juggle Grace Period", 0.5f, S.Value(Sample(State("CatchCyclone")), "baseDuration"), "Seconds after a catch in which a juggle can be performed.");
                 cycloneLimit = S.Int(s.Section, "Maximum Cyclones", 0, 1, "Maximum active cyclones per player. 0 is unlimited. Always 1 while juggling is enabled.");
                 returnDelay = S.Float(s.Section, "Delay Before Returning", 2f, 0f, "Seconds the cyclone lingers after stopping before returning.");
+                cycloneReturnSpeed = S.Float(s.Section, "Return Speed (%)", 50f, 100f,
+                    "Return travel speed as a percentage of vanilla, including its acceleration and juggle speed bonus.", 0.01f);
+                cycloneReturnDuration = S.Float(s.Section, "Maximum Return Duration", -1f,
+                    S.Value(Sample(CycloneState("Return")), "maxDuration"),
+                    "Maximum seconds spent returning. -1 allows the cyclone to remain out until caught.", -1f);
+                cycloneCooldownOnReturn = S.Bool(s.Section, "Cooldown Starts On Return", true, false,
+                    "Each active cyclone reserves one stock. Returned or removed cyclones allow those stocks to recharge; further returns do not reset cooldown progress.");
                 nativeSlowDuration = S.Value(Sample(CycloneState("SlowDown")), "duration", 1f);
                 float speed = S.Value(Sample(CycloneState("FlyOut")), "speed", 40f);
                 s.ProjectileSpeed = S.Float(s.Section, "Projectile Speed (m/s)", 90f, speed, "Outbound cyclone speed in metres per second.", 0.01f);
@@ -303,6 +313,14 @@ namespace Tweaks.Survivors
                 Patch(def, "GetCurrentDescriptionToken", postfix: nameof(AfterCycloneDescription));
                 Patch(def, "GetRechargeInterval", postfix: nameof(AfterCycloneRecharge));
                 Patch(def, "GetRechargeRate", postfix: nameof(AfterCycloneRechargeRate));
+                harmony.Patch(HarmonyLib.AccessTools.Method(typeof(GenericSkill), "RunRecharge", new[] { typeof(float), typeof(bool) }),
+                    prefix: new HarmonyMethod(typeof(Huntress), nameof(BeforeCycloneRunRecharge)),
+                    postfix: new HarmonyMethod(typeof(Huntress), nameof(AfterCycloneRunRecharge)));
+                harmony.Patch(AccessTools.Method(CycloneState("Return"), "FixedUpdate"),
+                    prefix: new HarmonyMethod(typeof(Huntress), nameof(BeforeReturnUpdate)),
+                    transpiler: new HarmonyMethod(typeof(Huntress), nameof(CycloneReturnIL)));
+                harmony.Patch(AccessTools.Method(CycloneState("Return"), "UpdatePrediction"),
+                    transpiler: new HarmonyMethod(typeof(Huntress), nameof(CycloneReturnIL)));
                 Patch(State("ThrowCycloneKickable"), "FireLaserCyclone", nameof(BeforeCycloneFire), finalizer: nameof(AfterCycloneFire));
                 Patch(typeof(GenericSkill), "DeductStock", nameof(BeforeCycloneDeduct));
                 Patch(State("CatchCyclone"), "OnEnter", nameof(BeforeCatch));
@@ -384,7 +402,7 @@ namespace Tweaks.Survivors
                 case "FireSeekingArrow": text = "Fire a seeking arrow for " + damage + "."; break;
                 case "FireFlurrySeekingArrow": text = "Draw back a volley of " + S.Damage(C.Get(volley).ToString()) + " seeking arrows for " + damage + " each. Critical strikes fire " + S.Damage(C.Get(critVolley).ToString()) + " arrows."; break;
                 case "ThrowGlaive": text = "Throw a seeking glaive that bounces " + S.Damage(C.Get(bounces).ToString()) + " times for " + damage + ". Damage increases by " + S.Damage(S.Number(C.Get(bounceBonus)) + "%") + " per bounce."; break;
-                case "ThrowCycloneKickable": text = "Throw a cyclone that deals " + damage + " to nearby enemies before returning." + (C.Get(juggling) ? " Catch and juggle it to add " + S.Damage(S.Number(C.Get(juggleBonus)) + "% damage") + " per tick." : ""); break;
+                case "ThrowCycloneKickable": text = "Throw a cyclone that deals " + damage + " to nearby enemies before returning." + (C.Get(cycloneCooldownOnReturn) ? " Each returning cyclone allows a stock to recharge." : "") + (C.Get(juggling) ? " Catch and juggle it to add " + S.Damage(S.Number(C.Get(juggleBonus)) + "% damage") + " per tick." : ""); break;
                 case "BlinkState": text = S.Utility("Disappear and teleport") + " forward."; break;
                 case "MiniBlinkState": text = S.Utility("Disappear and teleport") + " a short distance. Can store multiple charges."; break;
                 case "ArrowRain": text = "Teleport into the sky. Target an area to rain arrows, " + S.Utility("slowing") + " enemies and dealing " + damage + "."; break;
@@ -410,7 +428,7 @@ namespace Tweaks.Survivors
                 if (s.StateType.Name == "ThrowGlaive" && C.Get(primaryAim) && primaryAim.Value) add("Lock On", "Equipped primary");
                 else { add("Lock On Angle", S.Number(aim.Angle) + "°"); add("Lock On Distance", S.Number(aim.Distance) + "m"); }
             }
-            if (s.StateType.Name == "ThrowCycloneKickable") { add("Return Delay", S.Number(C.Get(returnDelay)) + "s"); add("Maximum Cyclones", C.Get(juggling) ? "1" : C.Get(cycloneLimit) == 0 ? "Unlimited" : C.Get(cycloneLimit).ToString()); }
+            if (s.StateType.Name == "ThrowCycloneKickable") { add("Return Delay", S.Number(C.Get(returnDelay)) + "s"); add("Return Speed", S.Number(C.Get(cycloneReturnSpeed)) + "%"); add("Maximum Return Duration", C.Get(cycloneReturnDuration) < 0f ? "Unlimited" : S.Number(C.Get(cycloneReturnDuration)) + "s"); add("Maximum Cyclones", C.Get(juggling) ? "1" : C.Get(cycloneLimit) == 0 ? "Unlimited" : C.Get(cycloneLimit).ToString()); }
             return text.ToString();
         }
         private static void AfterBodyAwake(CharacterBody __instance)
@@ -818,7 +836,97 @@ namespace Tweaks.Survivors
         }
         private static void AfterCycloneIcon(SkillDef __instance, ref Sprite __result) { if (definitions.ContainsKey(__instance) && !C.Get(juggling)) __result = __instance.icon; }
         private static void AfterCycloneRecharge(SkillDef __instance, ref float __result) { if (definitions.ContainsKey(__instance)) __result = __instance.baseRechargeInterval; }
-        private static void AfterCycloneRechargeRate(SkillDef __instance, ref float __result) { if (definitions.ContainsKey(__instance)) __result = 1f; }
+        private static void AfterCycloneRechargeRate(SkillDef __instance, GenericSkill skillSlot, ref float __result)
+        { if (definitions.ContainsKey(__instance)) __result = 1f; }
+        private static bool ReturnCooldownEnabled(GenericSkill slot) => slot && definitions.TryGetValue(slot.skillDef, out S.Skill skill) &&
+            skill.StateType.Name == "ThrowCycloneKickable" && C.Get(skill.Enabled) && C.Get(cycloneCooldownOnReturn);
+        // Use the same live projectile catalogue as the native skill, but count every
+        // cyclone. Prediction and authoritative copies share a nonzero prediction ID.
+        private static int CycloneRechargeLimit(GenericSkill slot)
+        {
+            int active = 0;
+            var predictionIds = new HashSet<ushort>();
+            var owner = slot.characterBody ? slot.characterBody.gameObject : null;
+            foreach (var locator in InstanceTracker.GetInstancesList<ProjectileLocator>())
+            {
+                if (!locator) continue;
+                var projectile = locator.GetComponent<ProjectileController>();
+                if (!projectile || projectile.owner != owner || !Matches(projectile, cyclonePrefab)) continue;
+                if (NetworkServer.active && projectile.isPrediction) continue;
+                if (projectile.predictionId != 0 && !predictionIds.Add(projectile.predictionId)) continue;
+                active++;
+            }
+            return Math.Max(0, slot.maxStock - active);
+        }
+        private static bool BeforeCycloneRunRecharge(GenericSkill __instance, ref float dt, bool continuous, out int __state)
+        {
+            __state = -1;
+            if (!ReturnCooldownEnabled(__instance)) return true;
+            int limit = CycloneRechargeLimit(__instance);
+            __state = Math.Max(__instance.stock, limit);
+            if (__instance.stock >= limit)
+            {
+                // No returned stock is waiting to recharge. Do not bank time here.
+                __instance.rechargeStopwatch = 0f;
+                return false;
+            }
+            if (continuous && __instance.rechargeStock > 0)
+            {
+                float remaining = (limit - __instance.stock) * __instance.CalculateFinalRechargeInterval()
+                    / __instance.rechargeStock - __instance.rechargeStopwatch;
+                dt = Math.Min(dt, Math.Max(0f, remaining));
+            }
+            return true;
+        }
+        private static void AfterCycloneRunRecharge(GenericSkill __instance, int __state)
+        {
+            if (__state < 0) return;
+            if (__instance.stock > __state) __instance.stock = __state;
+            if (__instance.stock >= CycloneRechargeLimit(__instance)) __instance.rechargeStopwatch = 0f;
+        }
+        private static bool ConfiguredCyclone(EntityState state) => OurCyclone(state) &&
+            skills.TryGetValue("ThrowCycloneKickable", out S.Skill skill) && C.Get(skill.Enabled);
+        internal static float ReturnLifetime(float configured) => configured < 0f ? float.PositiveInfinity : configured;
+        private static float ReturnSpeed(float native, EntityState state) => ConfiguredCyclone(state) ? native * C.Get(cycloneReturnSpeed) / 100f : native;
+        private static float ReturnDuration(float native, EntityState state) => ConfiguredCyclone(state) ? ReturnLifetime(C.Get(cycloneReturnDuration)) : native;
+        private static bool BeforeReturnUpdate(EntityState __instance)
+        {
+            if (!ConfiguredCyclone(__instance)) return true;
+            var controller = __instance.outer.GetComponent<ProjectileController>();
+            var body = controller.owner ? controller.owner.GetComponent<CharacterBody>() : null;
+            if (NetworkServer.active && body && body.healthComponent && !body.healthComponent.alive)
+            {
+                NetworkServer.Destroy(__instance.outer.gameObject);
+                return false;
+            }
+            return true;
+        }
+        private static IEnumerable<CodeInstruction> CycloneReturnIL(IEnumerable<CodeInstruction> input, MethodBase __originalMethod)
+        {
+            int speeds = 0, durations = 0;
+            foreach (var instruction in input)
+            {
+                yield return instruction;
+                string replacement = null;
+                if (instruction.opcode == OpCodes.Ldsfld && instruction.operand is FieldInfo field && field.DeclaringType == CycloneState("Return"))
+                {
+                    if (field.Name == "maxSpeed" || field.Name == "speedPerCombo") { replacement = nameof(ReturnSpeed); speeds++; }
+                    else if (field.Name == "maxDuration") { replacement = nameof(ReturnDuration); durations++; }
+                }
+                // The initial movement curve returns a speed, rather than a multiplier.
+                // Scale it too, otherwise the cyclone would only slow down after accelerating.
+                if (instruction.operand is MethodInfo method && method.DeclaringType == typeof(AnimationCurve) && method.Name == "Evaluate" &&
+                    __originalMethod.Name == "FixedUpdate" && speeds == 0)
+                { replacement = nameof(ReturnSpeed); speeds++; }
+                if (replacement != null)
+                {
+                    yield return new CodeInstruction(OpCodes.Ldarg_0);
+                    yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(Huntress), replacement));
+                }
+            }
+            if (speeds == 0 || (__originalMethod.Name == "FixedUpdate" && durations != 1))
+                throw new InvalidOperationException("Huntress cyclone return patch could not find the native speed/duration fields.");
+        }
         private static void BeforeCycloneFire(object __instance, out object __state) { __state = cycloneThrow; cycloneThrow = __instance; }
         private static Exception AfterCycloneFire(object __state, Exception __exception) { cycloneThrow = __state; return __exception; }
         private static void BeforeCycloneDeduct(GenericSkill __instance, ref int __0)

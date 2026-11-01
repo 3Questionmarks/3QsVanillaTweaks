@@ -75,6 +75,7 @@ namespace Tweaks.Bazaar
             armor = ModConfig.Bind(Section, "Armor", 0f,
                 "Newt's base armour. Default: 0. Vanilla: 100.");
 
+            var hookTimer = System.Diagnostics.Stopwatch.StartNew();
             harmony = new Harmony(HarmonyId);
             MethodInfo recalc = AccessTools.Method(typeof(CharacterBody), "RecalculateStats");
             if (recalc == null)
@@ -99,27 +100,33 @@ namespace Tweaks.Bazaar
             // Karma is managed by the game's own trigger registry. Block its usual
             // completion only when we have positively identified the Bazaar trigger.
             InstallKarmaHook();
+            ThreeQsVanillaTweaks.Log.Info("[Startup] Newt stat, damage and karma hooks: " + hookTimer.Elapsed.TotalMilliseconds.ToString("F0") + " ms.");
 
-            // The name can differ between RoR2 builds. Discover the actual shopkeeper kick state
-            // rather than adding a hard dependency on any one EntityStates assembly/class name.
+            // Resolve the vanilla state directly. Enumerating every type in every
+            // loaded mod assembly also triggers costly reflection/load hooks.
+            var discoveryTimer = System.Diagnostics.Stopwatch.StartNew();
             int patched = 0;
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            Assembly stateAssembly = typeof(EntityStates.EntityState).Assembly;
+            Type kickState = stateAssembly.GetType("EntityStates.NewtMonster.KickFromShop", false);
+            IEnumerable<Type> candidates;
+            if (kickState != null)
+                candidates = new[] { kickState };
+            else
             {
-                Type[] types;
-                try { types = assembly.GetTypes(); }
-                catch (ReflectionTypeLoadException e) { types = e.Types.Where(t => t != null).ToArray(); }
-                catch { continue; }
-
-                foreach (Type type in types)
-                {
-                    if (type == null || !type.Name.Equals("KickFromShop", StringComparison.Ordinal)) continue;
-                    if (!typeof(EntityStates.EntityState).IsAssignableFrom(type)) continue;
-                    MethodInfo enter = AccessTools.DeclaredMethod(type, "OnEnter");
-                    if (enter == null) continue;
-                    harmony.Patch(enter, prefix: new HarmonyMethod(typeof(Newt), nameof(BeforeKickFromShop)));
-                    patched++;
-                }
+                // Support renamed states in other builds without scanning unrelated mods.
+                try { candidates = stateAssembly.GetTypes(); }
+                catch (ReflectionTypeLoadException e) { candidates = e.Types.Where(t => t != null); }
             }
+            foreach (Type type in candidates)
+            {
+                if (type == null || !type.Name.Equals("KickFromShop", StringComparison.Ordinal)) continue;
+                if (!typeof(EntityStates.EntityState).IsAssignableFrom(type)) continue;
+                MethodInfo enter = AccessTools.DeclaredMethod(type, "OnEnter");
+                if (enter == null) continue;
+                harmony.Patch(enter, prefix: new HarmonyMethod(typeof(Newt), nameof(BeforeKickFromShop)));
+                patched++;
+            }
+            ThreeQsVanillaTweaks.Log.Info("[Startup] Newt kick-state discovery and patch: " + discoveryTimer.Elapsed.TotalMilliseconds.ToString("F0") + " ms.");
             if (patched == 0)
                 ThreeQsVanillaTweaks.Log.Warning("Newt: KickFromShop state not found; kick prevention is not active on this build.");
             else

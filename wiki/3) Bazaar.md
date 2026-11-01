@@ -1,16 +1,17 @@
 # General Bazaar Changes
 
-- Caps equipment recharge at 1 second in the Bazaar (and Computational Exchange). Gesture of the drowned auto use is disabled in these stages as well. *This is intended mainly for Recycler - since time is paused there is no downside to just waiting for its calldown to re-roll things in these areas. This just means you are not waiting around for several minute for that one friend to re-roll the legendary item 5 times in hopes of getting clover. (It's me, that one friend is me)*
+- Caps equipment recharge at 1 second in the Bazaar (and Computational Exchange). Gesture of the Drowned auto use is disabled in these stages as well. *This is intended mainly for Recycler - since time is paused there is no downside to just waiting for its cooldown to re-roll things in these areas. This just means you are not waiting around for several minutes for that one friend to re-roll the legendary item 5 times in hopes of getting clover. (It's me, that one friend is me)*
 - Rerolls replenish purchased Lunar Bud slots.
 - Allows 5 Lunar Bud purchases per visit before disabling rerolls.
 - Reroll prices increase by the reroll number instead of doubling: 1 → 2 → 4 → 7 → 11... Lunar Coins.
+- Blocks gold generation, preventing gold and converted-experience farming from Newt.
 
 # Newt
 
 - Newt no longer kicks players out for attacking him. Bazaar karma is awarded for killing him, once per visit.
 - Raises Newt's base health to 2,000,000, with 500,000 per level. Newt's armour has been reduced to 0.
 - After 3 seconds without taking damage, Newt regenerates 10% maximum health per second.
-- These changes are intended to make Newt a DPS dummy so you can check your build mid run easilly. 
+- These changes are intended to make Newt a DPS dummy so you can check your build mid run easily. 
 
 # 3D Printer
 
@@ -24,7 +25,6 @@
 # Common Cauldron
 
 - Adds a 50% chance for a cauldron that trades 2 Uncommon items or scrap for 3 of a shown Common item.
-
 
 # Legendary Cauldron
 

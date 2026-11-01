@@ -172,7 +172,7 @@ namespace Tweaks.Survivors
                 SkillLocator locator = body.GetComponent<SkillLocator>();
                 var passive = locator.passiveSkill;
                 toxinsDefinition = Passive("3QSRexNaturalToxins", passive.skillNameToken, toxinsEnabled.Value ? ToxinsToken : passive.skillDescriptionToken, passive.icon);
-                platingDefinition = Passive("3QSRexAdaptivePlating", "3QS_REX_PLATING_NAME", PlatingToken, passive.icon);
+                platingDefinition = Passive("3QSRexAdaptivePlating", "3QS_REX_PLATING_NAME", PlatingToken, AdaptivePlatingIcon(passive.icon));
                 R2API.LanguageAPI.Add("3QS_REX_PLATING_NAME", "Adaptive Plating");
                 R2API.LanguageAPI.Add(PassiveTitle, "Passive");
                 // These tooltips must exist even if an unrelated skill fails to load later.
@@ -1022,6 +1022,94 @@ namespace Tweaks.Survivors
             if (p.Index == 5) { add("Flower Range", S.Number(C.Get(flowerRange)) + "m"); add("Teleport Range", S.Number(C.Get(teleportRange)) + "m"); add("Teleport Cooldown", S.Number(C.Get(teleportCooldown)) + "s"); add("Maximum Flowers", C.Get(maxFlowers).ToString()); }
             if (p.Index == 7) { add("Duration", Duration(p.Skill)); add("Healing Interval", S.Number(C.Get(p.Skill.Interval)) + "s"); }
             return text.ToString();
+        }
+        // A separate sprite keeps the original skill artwork untouched.
+        private static Sprite addedSkillIcon;
+        private static Sprite AdaptivePlatingIcon(Sprite original)
+        {
+            if (addedSkillIcon) return addedSkillIcon;
+            if (!original) return original;
+            try { return addedSkillIcon = BuildAdaptivePlatingIcon(original); }
+            catch (Exception e)
+            {
+                ThreeQsVanillaTweaks.Log.Warning("3QSAdaptivePlatingIcon: retaining original icon because conversion failed: " + e.Message);
+                return original;
+            }
+        }
+
+        static Sprite BuildAdaptivePlatingIcon(Sprite original)
+        {
+            if (original.packed && original.packingRotation != SpritePackingRotation.None)
+                throw new InvalidOperationException("Unsupported rotated sprite atlas entry.");
+            const string name = "3QSAdaptivePlatingIcon";
+            // GPU readback also works for game textures imported without Read/Write.
+            Rect region = original.textureRect;
+            Vector2 offset = original.textureRectOffset;
+            int width = Mathf.RoundToInt(original.rect.width);
+            int height = Mathf.RoundToInt(original.rect.height);
+            int rw = Mathf.RoundToInt(region.width), rh = Mathf.RoundToInt(region.height);
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture temporary = null;
+            Texture2D readable = null, texture = null;
+            Sprite sprite = null;
+            try
+            {
+                temporary = RenderTexture.GetTemporary(original.texture.width, original.texture.height,
+                    0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(original.texture, temporary);
+                RenderTexture.active = temporary;
+                readable = new Texture2D(rw, rh, TextureFormat.RGBA32, false, false);
+                readable.ReadPixels(region, 0, 0, false);
+                readable.Apply(false, false);
+                Color[] source = readable.GetPixels();
+                Color[] pixels = new Color[width * height];
+                int ox = Mathf.RoundToInt(offset.x), oy = Mathf.RoundToInt(offset.y);
+                for (int y = 0; y < rh; y++)
+                for (int x = 0; x < rw; x++)
+                {
+                    Color pixel = source[y * rw + x];
+                    Color.RGBToHSV(pixel, out float hue, out float saturation, out float value);
+                    if (pixel.a > 0 && saturation > .2f && value > .12f)
+                    {
+                        if (hue >= .12f && hue <= .40f)
+                        {
+                            hue = .23f;
+                            value = Mathf.Min(1f, value * 1.12f);
+                        }
+                        Color changed = Color.HSVToRGB(hue, saturation, value);
+                        changed.a = pixel.a;
+                        pixel = changed;
+                    }
+                    int dx = x + ox, dy = y + oy;
+                    if (dx < 0 || dx >= width || dy < 0 || dy >= height) continue;
+                    dy = height - 1 - dy;
+                    pixels[dy * width + dx] = pixel;
+                }
+                texture = new Texture2D(width, height, TextureFormat.RGBA32, false, false);
+                texture.name = name;
+                texture.filterMode = original.texture.filterMode;
+                texture.wrapMode = TextureWrapMode.Clamp;
+                texture.SetPixels(pixels);
+                texture.Apply(false, true);
+                Vector2 pivot = new Vector2(original.pivot.x / width, original.pivot.y / height);
+                pivot.y = 1f - pivot.y;
+                sprite = Sprite.Create(texture, new Rect(0, 0, width, height), pivot,
+                    original.pixelsPerUnit, 0, SpriteMeshType.FullRect);
+                sprite.name = name;
+                return sprite;
+            }
+            catch
+            {
+                if (sprite) UnityEngine.Object.Destroy(sprite);
+                if (texture) UnityEngine.Object.Destroy(texture);
+                throw;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                if (temporary) RenderTexture.ReleaseTemporary(temporary);
+                if (readable) UnityEngine.Object.Destroy(readable);
+            }
         }
     }
 }

@@ -15,16 +15,22 @@ namespace Tweaks.Others
     internal static class ShieldMechanics
     {
         private const string Section = "Other - Shield Mechanics";
-        private static ConfigEntry<bool> enabled, gate, fall, curse, healing;
-        private static ConfigEntry<float> delay, replenish;
+        private static ConfigEntry<bool> enabled, gate, limitGate, transcendenceOSP, fall, curse, healing;
+        private static ConfigEntry<float> gateLimit, delay, replenish;
         private static readonly FieldInfo dangerTimer = AccessTools.Field(typeof(CharacterBody), "outOfDangerStopwatch");
         internal static bool ShieldIsCurseReduced => enabled == null || !C.Get(enabled) || C.Get(curse);
+        internal static float RechargeDelay => Active ? C.Get(delay) : 7f;
+        internal static bool TranscendenceDisablesOSP => Active && C.Get(gate) && C.Get(transcendenceOSP);
+        internal static bool DisablesOneShotProtection(CharacterBody body) => TranscendenceDisablesOSP && body && body.inventory && body.inventory.GetItemCountEffective(RoR2Content.Items.ShieldOnly) > 0;
         private static bool Active => enabled != null && C.Get(enabled);
 
         internal static void Init()
         {
             enabled = C.BindStartupBool(Section, "Enabled", true, "Enable general shield changes. Restart to apply.");
             gate = C.BindBool(Section, "Shield Gates HP", true, "A hit that breaks an existing shield cannot spill into health. Barrier is absorbed first. The next hit can damage health normally. Vanilla: False.");
+            limitGate = C.BindBool(Section, "Limit Shield Gating Damage", true, "Hits exceeding the configured multiple of current shield bypass its gate. Vanilla: no shield gate.");
+            gateLimit = C.Bind(Section, "Shield Gate Maximum Damage Multiplier", 3f, new ConfigDescription("Gate only when damage reaching shield is at most this multiple of its current amount. Exactly this amount still gates.", new AcceptableValueRange<float>(1f, 1000000f)));
+            transcendenceOSP = C.BindBool(Section, "Transcendence Disables One-Shot Protection", true, "While holding Transcendence and shield gating is enabled, normal one-shot protection is disabled even with an empty shield or a hit that bypasses the gate.");
             delay = C.Bind(Section, "Shield Regeneration Delay", 7f, new ConfigDescription("Seconds without taking damage before natural shield recharge begins. Does not change other out-of-danger effects. Vanilla: 7 seconds.", new AcceptableValueRange<float>(0f, 600f)));
             replenish = C.Bind(Section, "Shield Replenish Time", 3f, new ConfigDescription("Seconds to naturally restore an empty shield to full once recharge starts. Forced recharge and instant shield restores retain their normal effects. Vanilla: 2 seconds.", new AcceptableValueRange<float>(0.01f, 600f)));
             fall = C.BindBool(Section, "Shield Is Used To Calculate Fall Damage", true, "Calculate fall damage from maximum health plus maximum shield. Vanilla: False.");
@@ -100,11 +106,11 @@ namespace Tweaks.Others
             if (method == null) throw new MissingMethodException(type.FullName, name);
             harmony.Patch(method, transpiler: new HarmonyMethod(typeof(ShieldMechanics), transpiler));
         }
-        internal static float SpillDamage(float damage, float shield, bool gates) => gates && shield > 0f ? 0f : damage - shield;
+        internal static float SpillDamage(float damage, float shield, bool gates, bool limited = false, float limit = 3f) => gates && shield > 0f && (!limited || damage <= shield * limit) ? 0f : damage - shield;
         internal static float HealingMaximum(float health, float shield, bool includes) => health + (includes ? shield : 0f);
         internal static float RechargeRate(float seconds) => 1f / Math.Max(0.01f, seconds);
-        private static float GateSpill(float damage, float shield) => SpillDamage(damage, shield, Active && C.Get(gate));
-        private static bool GateBeforeOSP(bool eligible, HealthComponent health) => eligible && !(Active && C.Get(gate) && health.shield > 0f);
+        private static float GateSpill(float damage, float shield) => SpillDamage(damage, shield, Active && C.Get(gate), C.Get(limitGate), C.Get(gateLimit));
+        private static bool GateBeforeOSP(bool eligible, HealthComponent health) => eligible && !DisablesOneShotProtection(health.body) && !(Active && C.Get(gate) && health.shield > 0f);
         private static bool ShieldReady(CharacterBody body) => !Active ? body.outOfDanger : (float)dangerTimer.GetValue(body) >= C.Get(delay);
         private static float Rate() => Active ? RechargeRate(C.Get(replenish)) : 0.5f;
         private static float CurseDivisor(float value) => ShieldIsCurseReduced ? value : 1f;

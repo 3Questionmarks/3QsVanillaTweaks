@@ -162,7 +162,7 @@ namespace Tweaks.Items.Lunar
             if (!ModConfig.Get(enabled))
             {
                 LanguageAPI.Add(PickupToken,
-                    "Gain multiple orbiting bombs. <style=cIsHealth>Every minute, assimilate another item into Egocentrism.</style>");
+                    "Gain multiple orbiting bombs. <style=cIsUtility>Every minute, assimilate another item into Egocentrism.</style>");
                 LanguageAPI.Add(DescriptionToken, vanillaOrb +
                     "Every <style=cIsUtility>60</style> seconds, a random item is " +
                     "<style=cIsUtility>converted</style> into this item.");
@@ -184,14 +184,13 @@ namespace Tweaks.Items.Lunar
             string[] allowed = permissions.Where(pair => ModConfig.Get(pair.Value)).Select(pair => pair.Key).ToArray();
             string allowedText = allowed.Length > 0 ? string.Join(", ", allowed) : "None";
             LanguageAPI.Add(PickupToken,
-                "Gain multiple orbiting bombs. <style=cIsHealth>Periodically assimilate another item into Egocentrism.</style>");
+                "Gain multiple orbiting bombs. <style=cIsUtility>Periodically assimilate another item into Egocentrism.</style>");
             LanguageAPI.Add(DescriptionToken,
                 orb + "Every <style=cIsUtility>" + Format(ModConfig.Get(interval)) + "</style> seconds " +
                 "<style=cStack>(" + Signed(ModConfig.Get(perStack)) + " " +
                 (Mathf.Approximately(Mathf.Abs(ModConfig.Get(perStack)), 1f) ? "second" : "seconds") +
                 " per stack, minimum " + Format(Mathf.Max(1f, ModConfig.Get(minimum))) + ")</style>, " +
-                "a random eligible item is <style=cIsUtility>converted</style> into this item. " +
-                "<style=cStack>(Allowed items: " + allowedText + ")</style>");
+                "<style=cIsUtility>A random eligible item is converted into this item.</style>");
         }
 
         private static void AddPermission(string name, bool defaultValue)

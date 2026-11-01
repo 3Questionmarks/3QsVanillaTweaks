@@ -14,7 +14,8 @@
 
 # Shields
 
-- Damage that breaks a shield no longer spills into health. For example, a 300-damage hit against 100 HP and 100 shield removes the shield but leaves 100 HP.
+- Damage that breaks a shield no longer spills into health. For example, a 200-damage hit against 100 HP and 100 shield removes the shield but leaves 100 HP.
+- A hit dealing more than three times the remaining shield bypasses the gate.
 - Shields take 3 seconds to fully recharge after the regeneration delay (up from 2 seconds). The regeneration delay remains at 7 seconds.
 - Fall damage is calculated using maximum health plus shield.
 - Percentage-based healing uses maximum health plus shield, improving interactions such as Transcendence with N’kuhana’s Opinion. Healing still restores health rather than shield; flat healing is unchanged.
@@ -22,6 +23,7 @@
 # Barrier
 
 - Damage that breaks barrier no longer spills into shield or health.
+- A hit dealing more than three times the remaining barrier bypasses the gate.
 - Maximum barrier uses combined health and shield before HP curse reductions, defaulting to 100% of that total.
 - Adds optional scaled, pre-Collective and custom decay formulas. The default remains vanilla decay.
 
@@ -38,3 +40,9 @@
 
 - Player-controlled drones can use interactables.
 - Drone respawns are limited to 1 per player per stage by default, with a configurable limit.
+
+# Non-enemy objects
+
+- Rocks and other non-enemy objects do not trigger supported on-kill or on-hit item effects such as Brittle Crown.
+
+

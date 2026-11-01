@@ -184,9 +184,9 @@ namespace Tweaks.Survivors
         {
             Settings s = new Settings { Section = Root + (isFavour ? " - Nkuhanas Favour" : " - Nkuhanas Grace") };
             Float(s, "Damage Taken Added To Recoverable Health (%)", isFavour ? 0f : 40f, isFavour ? 0f : 40f, "Damage taken added to recoverable health.");
-            Float(s, "Attack Speed Per Recoverable Health (%)", isFavour ? 0f : 2f, isFavour ? 0f : 1f, "Attack speed gained per 1% of maximum health held as recoverable health.");
+            Float(s, "Attack Speed Per Recoverable Health (%)", isFavour ? 0f : 1f, isFavour ? 0f : 1f, "Attack speed gained per 1% of maximum health held as recoverable health.");
             Float(s, "Armour Increase", 0f, isFavour ? 20f : 0f, "Additional armour while using this passive.", -10000f);
-            if (!isFavour) Float(s, "Damage To Healing (%)", 6.5f, 6.5f, "Skill damage returned as healing, scaled by proc coefficient.");
+            if (!isFavour) Float(s, "Damage To Healing (%)", 6.5f, 6.5f, "Skill damage converted into healing from stored recoverable health, scaled by proc coefficient. Requires and consumes that reserve; cannot heal more than the stored amount. Does not grant lifesteal.");
             else
             {
                 Int(s, "Flat Attack Speed Stacks From Healing", 1, 1, "Extra attack speed stacks granted by each heal.");
@@ -535,8 +535,9 @@ namespace Tweaks.Survivors
         }
         private static string RecoveryExtra(Settings options, bool form)
         {
-            string text = "\nRecovery Healing: <style=cIsHealing>" + S.Number(F(options, "Damage To Healing (%)")) + "% of " + (form ? "damage dealt" : "skill damage dealt") + "</style>";
+            string text = "\nRecoverable Health Conversion: <style=cIsHealing>" + S.Number(F(options, "Damage To Healing (%)")) + "% of " + (form ? "damage dealt" : "skill damage dealt") + "</style>";
             if (!form) text += " × proc coefficient";
+            text += " (requires and consumes recoverable health)";
             if (!form) text += "\nRecoverable Health Decay: " + S.Utility(S.Number(general == null ? 1f : F(general, "Decay Per Second (%)")) + "% max HP/s");
             return text;
         }
@@ -967,6 +968,7 @@ namespace Tweaks.Survivors
             {
                 bool healDirectly = general != null && B(general, "Allow Healing From Other Sources");
                 text = healDirectly ? "Healing and regeneration can restore " + s.RecoveryWord + "." : "Convert healing and regeneration into " + s.RecoveryWord + ".";
+                text += " Skill damage converts this reserve into healing, up to " + "<style=cIsHealing>" + S.Number(F(s, "Damage To Healing (%)")) + "% of damage dealt</style>" + ", limited by the amount stored.";
             }
             if (F(s, "Damage Taken Added To Recoverable Health (%)") > 0f)
                 text += " Store " + S.Utility(S.Number(F(s, "Damage Taken Added To Recoverable Health (%)")) + "% of damage taken") + " as " + s.RecoveryWord + ".";

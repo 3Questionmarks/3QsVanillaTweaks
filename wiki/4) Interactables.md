@@ -2,6 +2,7 @@
 
 - Increases the holdout radius to 90 metres.
 - After the boss is defeated, the radius expands to cover effectively the whole map and charging becomes twice as fast.
+- The Soul-binding ritual and overcharge phase retain their normal charging speed.
 
 # Shrine Of Blood
 
@@ -16,12 +17,12 @@
 # Shrine Of Combat
 
 - Defeating the shrine encounter awards item rewards.
+- Summoned enemies drop **50%** of their normal gold.
 - Reward rarity weights are 65% Common, 34% Uncommon and 1% Legendary.
 
 # Void Seed Limit
 
-- Raises the Void Seed limit to 3.
-- Adds 1 to the limit per completed loop and per 5 Void item stacks held by the team, up to a maximum of 10.
+- Adds 1 to the limit of void seeds on a stage per completed loop and per 5 Void item stacks held by the team, up to a maximum of 10.
 
 # Wandering Chef
 

@@ -18,6 +18,8 @@ namespace Tweaks.Stages
         private static ConfigEntry<bool> enabled, fullSpeed, stopEnemies, keepSignals, rewards;
         private static ConfigEntry<int> required, maximum;
         private static ConfigEntry<float> radius, duration;
+        private static ConfigEntry<bool> scaleSignalCredits;
+        private static ConfigEntry<float> signalCreditIncrease, extraSignalScaling;
         [ThreadStatic] private static Mission spawning;
         private static Run cachedRun;
         private static SceneDef cachedNormalDestination;
@@ -42,6 +44,12 @@ namespace Tweaks.Stages
                 "Stop enemies spawning once the required signals are completed. Vanilla: True.");
             rewards = ModConfig.BindBool(section, "Signal Rewards", true,
                 "Each completed signal drops one Void Potential per player. Vanilla: False.");
+            scaleSignalCredits = ModConfig.BindBool(section, "Scale Signal Enemy Credits", true,
+                "Increase enemy spawning credits for each subsequent Deep Void Signal. Only affects that signal's encounter. Vanilla: False.");
+            signalCreditIncrease = ModConfig.Bind(section, "Enemy Credit Increase Per Signal (%)", 25f,
+                new ConfigDescription("Additional percentage of the first signal's credit budget per subsequent signal. Vanilla: 0.", new AcceptableValueRange<float>(0f, 1000f)));
+            extraSignalScaling = ModConfig.Bind(section, "Extra Signal Credit Increase Multiplier", 2f,
+                new ConfigDescription("Multiply the per-signal increase for each signal beyond the required count. 2 doubles the increase; 1 keeps the normal increase.", new AcceptableValueRange<float>(1f, 100f)));
             VoidLocusRewards.Bind(section);
             VoidLocusShop.Bind();
 
@@ -54,6 +62,8 @@ namespace Tweaks.Stages
                 postfix: new HarmonyMethod(typeof(VoidLocus), nameof(AfterSpawn)));
             harmony.Patch(AccessTools.Method(typeof(Charging), "OnEnter"),
                 postfix: new HarmonyMethod(typeof(VoidLocus), nameof(AfterCharging)));
+            harmony.Patch(AccessTools.Method(typeof(Charging), "OnExit"),
+                prefix: new HarmonyMethod(typeof(VoidLocus), nameof(BeforeChargingEnds)));
             harmony.Patch(AccessTools.Method(typeof(Charged), "OnEnter"),
                 postfix: new HarmonyMethod(typeof(VoidLocus), nameof(AfterCharged)));
             harmony.Patch(AccessTools.Method(typeof(VoidStageMissionController), "OnBatteryActivated"),
@@ -81,6 +91,7 @@ namespace Tweaks.Stages
             internal int Needed, ActualSpawned;
             internal bool Complete;
             private float nextPortalAttempt;
+            internal readonly Dictionary<HoldoutZoneController, int> EncounterOrder = new Dictionary<HoldoutZoneController, int>();
             internal readonly List<HoldoutZoneController> Signals = new List<HoldoutZoneController>();
             internal readonly HashSet<HoldoutZoneController> Finished = new HashSet<HoldoutZoneController>();
             private void FixedUpdate()
@@ -145,6 +156,26 @@ namespace Tweaks.Stages
             Signal signal = zone.GetComponent<Signal>();
             if (!signal) { signal = zone.gameObject.AddComponent<Signal>(); signal.Zone = zone; }
             signal.Configure();
+            if (!NetworkServer.active) return;
+            var owner = VoidStageMissionController.instance;
+            var mission = owner ? owner.GetComponent<Mission>() : null;
+            if (!mission) return;
+            if (!mission.EncounterOrder.TryGetValue(zone, out int previous))
+            {
+                previous = mission.EncounterOrder.Count;
+                mission.EncounterOrder.Add(zone, previous);
+            }
+            int needed = mission.Needed;
+            foreach (var director in zone.GetComponentsInChildren<CombatDirector>(true))
+                HoldoutDirectorScaling.Begin(director, () => Apply(zone.gameObject) && ModConfig.Get(scaleSignalCredits)
+                    ? HoldoutDirectorScaling.Multiplier(previous, needed, ModConfig.Get(signalCreditIncrease), ModConfig.Get(extraSignalScaling)) : 1f);
+        }
+
+        private static void BeforeChargingEnds(EntityState __instance)
+        {
+            if (!NetworkServer.active) return;
+            foreach (var director in __instance.gameObject.GetComponentsInChildren<CombatDirector>(true))
+                HoldoutDirectorScaling.End(director);
         }
 
         private static void BeforeHoldoutUpdate(HoldoutZoneController __instance)
@@ -186,15 +217,13 @@ namespace Tweaks.Stages
                 foreach (HoldoutZoneController zone in mission.Signals)
                     if (zone && !mission.Finished.Contains(zone))
                     { PurchaseInteraction purchase = zone.GetComponent<PurchaseInteraction>(); if (purchase) purchase.SetAvailable(false); }
-            if (ModConfig.Get(stopEnemies))
-                foreach (CombatDirector director in UnityEngine.Object.FindObjectsOfType<CombatDirector>())
-                    if (director.gameObject.scene == mission.gameObject.scene && !ActiveSignalDirector(mission, director))
-                    { director.monsterCredit = 0f; director.enabled = false; }
+            // Preserve event directors and credits for optional signals.
+            // BeforeEnemySpawn blocks ambient spawning while no signal is active.
         }
 
         // Only the currently charging signal may spawn after the portal opens.
         private static bool ActiveSignalDirector(Mission mission, CombatDirector director) =>
-            mission.Signals.Any(zone => zone && zone.gameObject == director.gameObject &&
+            mission.Signals.Any(zone => zone && (director.transform == zone.transform || director.transform.IsChildOf(zone.transform)) &&
                 !mission.Finished.Contains(zone) && zone.GetComponent<EntityStateMachine>() &&
                 zone.GetComponent<EntityStateMachine>().state is Charging);
 
