@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.1]
+
+### Fixes
+- Fixed missing Dependancies
+
 ## [0.5.0] - Remote Operation, Bazaar Unlocks and Stage Expansion
 
 ### Added

@@ -1,5 +1,3 @@
-# Remote Operation
-
 Remote Operation drones now are alot more mechanically interesting an all have a full 4 skills. Base stats have been reduced to compensate, and drone control prices have been increased.
 
 ## Shared rules
