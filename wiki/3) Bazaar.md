@@ -39,6 +39,9 @@
 
 - Adds an extra Lunar Bulb with an 80% spawn chance.
 
+# Lunar Seer
+- A third Lunar Seer has a 50% spawn chance. Each Seer charges 1 Lunar Coin to use (vanilla 3)
+
 # Scrapper
 
 - Adds a guaranteed Scrapper.
@@ -50,3 +53,47 @@
 # Void Cradle
 
 - Adds a Void Cradle with a 15% chance to spawn per visit.
+
+# Hallowed Pools
+
+- Spend 1 Hex by default to banish the displayed item for the rest of the run. A banished item cannot appear again in the run.
+- Default item weights are 50% Common, 35% Uncommon and 15% Legendary. The weights and Hex price are configurable.
+- Always spawns 1 pool with a 50% chance to spawn a second.
+
+# Shrines of the Woods
+
+- The shrine has a 60% spawn chance.
+- Each use costs 1 Lunar Coin. The shrine can change a skill in the slot indicated by its colour with the Shrine of the Woods changes enabled.
+
+# Wandering Chef
+
+- The Chef has a 40% spawn chance.
+- The Chef will only allow cooking one specific meal chosen randomly for each player per visit. The random meal will be craftable with your held items if possible, otherwise if you gain a valid meal during the bazaar, that will be the offted recipe.
+
+# Bazaar Unlock Mode
+
+- In this mode every interactable always spawns, although they will also start locked. 
+- An extra cauldron of each colour, Hallowed Pool, Shrine of the Woods, and 2 extra Lunar Buds will also spawn.
+- Lockboxes that spawn will always be 2 regualr, and 1 void.
+- **Activation** defaults to **FleetingMoonOnly**. It can also be set to **AlwaysOn** or **AlwaysOff**.
+- You must pay Lunar Coins to break a crystal before using its interactable. The unlock price is separate from the regular use fee, recipe or item cost.
+- Unlock recipients default to **Everyone** currently in the game. The alternatives are **Host** and **Buyer**. Progress that persists across runs follows the host.
+- **Reset Unlocks** defaults to **EveryRunWin**, which clears unlock progress on a victory or **Fate Unknown** result. Other options reset it every visit, every run, every game launch, or keep it permanently. Game-launch and permanent unlocks are separated by game mode by default. Separating them by survivor is optional and off by default. In theory, you could bump up the unlock prices to something fairly high for each interactable and have them never reset as a form of perminant meta-progression
+
+| Interactable slots | Default unlock cost in Lunar Coins |
+| --- | --- |
+| Lunar Shop 3–5 | 1, 2, 3 |
+| Common Cauldrons 1–2 | 1, 2 |
+| Uncommon Cauldrons 1–2 | 2, 3 |
+| Legendary Cauldrons 1–2 | 3, 5 |
+| 3D Printers 1–2 | 2, 3 |
+| Scrapper | 3 |
+| Shrine of Order | 3 |
+| Shrines of the Woods 1–2 | 2, 3 |
+| Cleansing Pool | 5 |
+| Hallowed Pools 1–3 | 2, 4, 6 |
+| Lockboxes 1–2 and Void Lockbox | 1, 1, 2 |
+| Lunar Pods 1–3 | 1, 2, 3 |
+| Void Cradle | 4 |
+| Lunar Seers 1–3 | 2 each |
+| Wandering Chef | 3 |

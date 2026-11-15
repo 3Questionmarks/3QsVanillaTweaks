@@ -60,6 +60,9 @@ namespace Tweaks.Bazaar
             harmony.Patch(AccessTools.Method(typeof(ShopTerminalBehavior), "GenerateNewPickupServer", new[] { typeof(bool) }),
                 prefix: new HarmonyMethod(typeof(LunarShop), nameof(BeforeGeneratePickup)),
                 postfix: new HarmonyMethod(typeof(LunarShop), nameof(AfterGeneratePickup)));
+            harmony.Patch(AccessTools.Method(typeof(ShopTerminalBehavior), nameof(ShopTerminalBehavior.DropPickup), new[] { typeof(bool) }),
+                prefix: new HarmonyMethod(typeof(LunarShop), nameof(BeforeDropPickup)),
+                postfix: new HarmonyMethod(typeof(LunarShop), nameof(AfterDropPickup)));
             Log.Info("Bazaar lunar shop tweaks initialized.");
         }
 
@@ -67,7 +70,8 @@ namespace Tweaks.Bazaar
         private static bool IsRecycler(PurchaseInteraction purchase) =>
             purchase != null && purchase.gameObject.name.StartsWith("LunarRecycler", StringComparison.OrdinalIgnoreCase);
         internal static bool IsBud(ShopTerminalBehavior terminal) =>
-            terminal != null && terminal.gameObject.name.StartsWith("LunarShop", StringComparison.OrdinalIgnoreCase);
+            terminal && (terminal.gameObject.name.StartsWith("LunarShop", StringComparison.OrdinalIgnoreCase) ||
+                terminal.GetComponent<PurchaseInteraction>()?.displayNameToken == "LUNAR_TERMINAL_NAME");
 
         private static void ResetForStage(Stage stage)
         {
@@ -95,12 +99,7 @@ namespace Tweaks.Bazaar
             if (IsRecycler(__instance))
                 __instance.Networkcost = ModConfig.Get(initialRerollCost);
             else if (IsBud(__instance.GetComponent<ShopTerminalBehavior>()))
-            {
                 __instance.Networkcost = ModConfig.Get(budCost);
-#pragma warning disable CS0618
-                __instance.onPurchase.AddListener(_ => OnLunarPurchase());
-#pragma warning restore CS0618
-            }
         }
 
         private static void ApplyLimit()
@@ -160,9 +159,15 @@ namespace Tweaks.Bazaar
             purchase.Networkcost = ModConfig.Get(budCost);
             if (Active && ModConfig.Get(replenishPurchased)) purchase.SetAvailable(true);
         }
-        private static void OnLunarPurchase()
+        private static void BeforeDropPickup(ShopTerminalBehavior __instance, bool isDuplicated, out bool __state)
         {
-            if (!NetworkServer.active || !BazaarSpawnHelper.InBazaar()) return;
+            __state = NetworkServer.active && BazaarSpawnHelper.InBazaar() && !isDuplicated &&
+                !__instance.NetworkhasBeenPurchased && IsBud(__instance);
+        }
+
+        private static void AfterDropPickup(ShopTerminalBehavior __instance, bool __state)
+        {
+            if (!__state || !__instance.NetworkhasBeenPurchased) return;
             int? remaining = null;
             if (Active)
             {

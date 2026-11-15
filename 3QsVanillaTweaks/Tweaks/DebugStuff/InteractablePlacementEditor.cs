@@ -16,6 +16,8 @@ namespace Tweaks.DebugStuff
     internal static class InteractablePlacementEditor
     {
         private const short PlacementMessageId = 187;
+        private const string PoseDescription =
+            "Exact world position X, Y, Z and rotation X, Y, Z in degrees. Blank uses the normal placement.";
         private static readonly CultureInfo Format = CultureInfo.InvariantCulture;
         private static readonly List<Placement> Placements = new List<Placement>();
         private static EditorWindow window;
@@ -41,18 +43,39 @@ namespace Tweaks.DebugStuff
             window = root.AddComponent<EditorWindow>();
         }
 
-        // Call before network spawn for fixed placements. Slot names must identify a placement,
-        // including its normal/alternate layout, independent of the rolled prefab.
+        // Call before network spawn for fixed placements. Use a slot name independent of the rolled prefab.
         internal static void Register(GameObject target, string label, string slot, bool alreadySpawned = false)
         {
             if (!target || savedPlacements == null || !NetworkServer.active || !target.scene.IsValid()) return;
             var fallback = new Pose(target.transform.position, target.transform.rotation);
-            var entry = savedPlacements.Bind(target.scene.name, slot, "",
-                "Exact world position X, Y, Z and rotation X, Y, Z in degrees. Blank uses the normal placement.");
+            var entry = savedPlacements.Bind(target.scene.name, slot, "", PoseDescription);
             var placement = new Placement(target, label, fallback, entry);
             if (TryReadPose(entry.Value.Split(','), out var saved))
                 placement.Apply(saved, alreadySpawned);
             Placements.Add(placement);
+        }
+
+        internal static void UpdateSavedPose(string scene, string slot, string previous, string updated)
+        {
+            if (savedPlacements == null) return;
+            var entry = savedPlacements.Bind(scene, slot, "", PoseDescription);
+            if (!TryReadPose(entry.Value.Split(','), out var saved) ||
+                !TryReadPose(previous.Split(','), out var oldPose) ||
+                saved.position != oldPose.position || saved.rotation != oldPose.rotation) return;
+            try { WriteSavedPose(entry, updated); }
+            catch (Exception e) { Log.Warning("Could not update the saved placement for " + slot + ": " + e.Message); }
+        }
+
+        private static void WriteSavedPose(ConfigEntry<string> entry, string value)
+        {
+            string previous = entry.Value;
+            entry.Value = value;
+            try { entry.ConfigFile.Save(); }
+            catch
+            {
+                entry.Value = previous;
+                throw;
+            }
         }
 
         internal static void Link(GameObject target, GameObject companion)
@@ -100,17 +123,7 @@ namespace Tweaks.DebugStuff
                 Physics.SyncTransforms();
             }
 
-            internal void Save(string value)
-            {
-                string previous = Entry.Value;
-                Entry.Value = value;
-                try { Entry.ConfigFile.Save(); }
-                catch
-                {
-                    Entry.Value = previous;
-                    throw;
-                }
-            }
+            internal void Save(string value) => WriteSavedPose(Entry, value);
         }
 
         private static void Move(GameObject target, Pose pose)

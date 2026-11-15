@@ -45,8 +45,18 @@ namespace Tweaks.Items.Common
                     return text;
                 float bonus = CurrentBonus(master ? master.GetBody() : null, stacks);
                 if (text.IndexOf("Bonus Damage:", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    return Tweaks.ModCompatibility.LookingGlassStatRegistry.ReplaceValue(text, "Bonus Damage:", bonus, "#E5C962");
-                return Tweaks.ModCompatibility.LookingGlassStatRegistry.AddValue(text, "Current Damage Bonus", bonus, "%", "#E5C962");
+                    text = Tweaks.ModCompatibility.LookingGlassStatRegistry.ReplaceValue(
+                        text, "Bonus Damage:", bonus, "#E5C962");
+                else
+                    text = Tweaks.ModCompatibility.LookingGlassStatRegistry.AddValue(
+                        text, "Current Damage Bonus", bonus, "%", "#E5C962");
+
+                if (DelicateWatchRework.Active)
+                    text = Tweaks.ModCompatibility.LookingGlassStatRegistry.AddValue(
+                        text, "Break Threshold",
+                        DelicateWatchRework.BreakThreshold(stacks), "%", "#E58262");
+
+                return text;
             }, () => Active);
             // Bind only after all item modules have selected their modes. The
             // original token may already have been cached by language extensions.

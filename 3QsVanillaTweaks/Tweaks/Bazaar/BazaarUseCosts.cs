@@ -26,6 +26,7 @@ namespace Tweaks.Bazaar
             exitFee = BindCoinPrice("Bazaar - Exit Portal", 0, "Lunar coins to use the Bazaar's Blue Portal. Vanilla: free.");
             nullPortalFee = BindCoinPrice("Bazaar - Null Portal", 0, "Lunar coins to use the portal to the Void Fields. Vanilla: free.");
             gongFee = BindCoinPrice("Bazaar - Ritual Gong", 0, "Lunar coins to use the Ritual Gong. Vanilla: free.");
+            C.RetireUnboundSectionTree("Bazaar - Lunar Shop Upgrade");
 
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Bazaar.UseCosts");
             var purchaseType = typeof(PurchaseInteraction);

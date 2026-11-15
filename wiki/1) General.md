@@ -36,13 +36,20 @@
 
 - Temporary item stacks last 90 seconds (up from 80 seconds).
 
-# Multiplayer Drones
+# Remote Operation
 
-- Player-controlled drones can use interactables.
-- Drone respawns are limited to 1 per player per stage by default, with a configurable limit.
+- Player-controlled Remote Operation drones can use interactables, collect items and benefit from held items by default.
+- There is a cooldown betweeen respawning times. You can use the equipment to activate this cooldown early and change your drone.
+- See **Allies** for revival, the drone loadouts and the Remote Operation settings.
 
 # Non-enemy objects
 
 - Rocks and other non-enemy objects do not trigger supported on-kill or on-hit item effects such as Brittle Crown.
+- Newt can receive on-hit effects such as bleed. Forgive Me Please can still trigger on-kill effects, such as Gasoline and Chronic Expansion.
 
+# Player and Enemy Levels
+
+- The player level cap is 100 (vanilla 94). The new curve reaches the cap at the same total XP as vanilla and still requires 20 XP for the first level-up.
+- The ambient enemy level cap is 9,999 (vanilla 99). Enemies keep their current health when they level up by default.
+- The configurable enemy item blacklist applies to rolls such as Evolution, Void Fields and Simulacrum. It adds Tougher Times, Safer Spaces, Shuriken, Shipping Request Form, Regenerating Scrap, Kinetic Dampener, Unstable Tesla Coil, N'kuhana's Opinion, Frost Relic, Spare Drone Parts and Empathy Cores to existing restrictions.
 

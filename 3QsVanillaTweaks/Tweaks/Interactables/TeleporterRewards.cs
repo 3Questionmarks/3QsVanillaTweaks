@@ -59,7 +59,7 @@ namespace Tweaks.Interactables
             const string section = "Interactables - Teleporter Rewards";
             enabled = C.BindBool(section, "Per Player Reward Choices", true,
                 "Each player receives a choice pickup containing the same teleporter rewards. Claim every reward from your pickup. Vanilla: loose items shared by all players.");
-            bossChance = C.Bind(section, "Boss Item Replacement Chance (%)", 10f,
+            bossChance = C.Bind(section, "Boss Item Replacement Chance (%)", 15f,
                 new ConfigDescription("Chance for each teleporter reward to become the defeated boss's item. Vanilla: 15%.", new AcceptableValueRange<float>(0f, 100f)));
             hordeReplacementChance = C.Bind(section, "Horde Of Many Common Replacement Chance (%)", 25f,
                 new ConfigDescription("Chance for each item reward from a Horde of Many teleporter boss to become a bundle of random common items. Vanilla: 0%.", new AcceptableValueRange<float>(0f, 100f)));

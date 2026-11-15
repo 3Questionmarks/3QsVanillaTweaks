@@ -17,7 +17,7 @@ namespace ThreeQsVanillaTweaks
         public const string PluginAuthor = "3Questionmarks";
         public const string PluginName = "3QsVanillaTweaks";
         public const string PluginGUID = PluginAuthor + "." + PluginName;
-        public const string PluginVersion = "0.4.0";
+        public const string PluginVersion = "0.5.0";
         internal const string RetroactiveMacroGuid = "Onyx.RetroactiveMacro";
 
         private void Awake()

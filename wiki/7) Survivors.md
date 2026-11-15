@@ -1,14 +1,15 @@
 # Commando
 
 - **Phase Round:** adds 50% damage per enemy pierced (up from 40%) and travels 50% faster.
-- **Tactical Dive:** fully reloads the primary, mainly useful with Visions of Heresy.
+- **Tactical Dive:** fully restocks primary, secondary and special by default.
 - **Tactical Slide:** cooldown is 3 seconds (down from 4).
 - **Suppressive Fire:** fires 8 base shots (up from 6).
-- **Frag Grenade:** can be cooked and has a 2-second fuse.
+- **Frag Grenade:** can be cooked and has a 2-second fuse. Other abilities remain available while cooking it.
 - **Sabotage:** has 3 stocks, a 3-second cooldown and throws one explosive per use (instead of 1 stock throwing 3 explosives with a 7-second cooldown).
 
 # Huntress
 
+- Base movement speed is **8 m/s**, and base acceleration is **100**.
 - Adds **Momentum**, a passive granting up to 20% critical strike chance through sustained sprinting. Taking health damage resets it; barrier can protect the stacks.
 - **Strafe:** deals 170% damage (up from 150%).
 - **Laser Glaive:** gains 20% damage per bounce (up from 10%).
@@ -20,16 +21,18 @@
 
 # Bandit
 
+- Base critical strike chance is **5%**.
 - Hemorrhage ignores armour. Critical primary hits can now inflict it: 5% per Burst pellet or 25% for Blast.
 - **Burst:** fires 5 pellets. Supports hold-to-fire.
 - **Blast:** deals 400% (up from 340%) damage and pierces 2 enemies (vanilla does not pierce). Supports hold-to-fire.
-- **Serrated Dagger:** gains a short lunge and a 50% larger hitbox. No longer counts as in-combat when using.
+- **Serrated Dagger:** gains a 3-metre lunge and a 50% larger hitbox. No longer counts as in-combat when using.
 - **Serrated Shiv:** Hitbox is doubled. No longer counts as in-combat when using.
 - **Lights Out / Desperado:** use a 6-second cooldown (up from 4) and grant kill rewards if the target dies within 0.5 seconds of the hit (vanilla requires the shot itself to kill).
 - **Desperado:** gains 1% extra damage per Bandit Skull (down from 10%); stacks persist through death and stage transitions instead of resetting.
 
 # MUL-T
 
+- **Auto-Nailgun** spins up over 5 seconds of sustained fire, reaching **150%** of its normal sustained fire rate and **50%** of its normal spread. Spin begins to decay 0.5 seconds after release and takes 1 second to decay from full. The crosshair stays at its resting spread size while the spin-up rework is active.
 - **Rebar Puncher:** deals 700% damage. (Up from 600%)
 - **Scrap Launcher:** deals 400% damage (Up from 360%), and faster projectiles. Gains Pocket I.C.B.M. support.
 - **Power-Saw:** now converts 20% of damage dealt into barrier.
@@ -48,10 +51,11 @@
 
 # Artificer
 
+- Base stats include **55 health**, **55 shield** and **60 acceleration**. She gains 16.5 health and 16.5 shield per level.
 - **Flame Bolt / Plasma Bolt:** deal 300% damage. (Up from 280%)
 - **Charged Nano-Bomb / Cast Nano-Spear:** While charging, Artificer doesn't fall and hovers.
 - **Flamethrower:** can be used while sprinting, reaches 30 metres, always ignites and can be cancelled early by pressing the skill again.
-- **Ion Surge:** Removes movement-speed scaling from its launch, and protects the first landing from fall damage for 5 seconds.
+- **Ion Surge:** Removes movement-speed scaling from its launch, and protects the first landing from fall damage for 3 seconds.
 - With Artificer Extended installed, adds **Voltaic Surge** using the Ion Surge settings, leaving Ion Surge unchanged.
 
 # Mercenary
@@ -59,8 +63,8 @@
 - Kills now restore the extra jump.
 - Reduces movement-speed scaling on movement skills.
 - **Blinding Assault:** removes the limit on repeat dashes.
-- **Focused Assault:** gains Slayer damage and unlimited resets on kills.
-- **Eviscerate:** lasts 2 seconds. (up from 1.5)
+- **Focused Assault:** gains Slayer damage and unlimited resets on kills. Base cooldown is 2 seconds longer than vanilla.
+- **Eviscerate:** lasts 2 seconds (up from 1.5). Base cooldown is 2 seconds longer than vanilla. Killing with Eviscerate can reset its cooldown once per cast.
 
 # REX
 
@@ -81,6 +85,7 @@
 
 # Acrid
 
+- Base movement speed is **8 m/s**.
 - **Regenerative:** counts as healing, instead of regeneration, allowing healing-related effects to apply.
 - **Vicious Wounds:** has a 50% larger hitbox.
 - **Ravenous Bite:** deals 400% damage. (up from 320%)
@@ -95,7 +100,7 @@
 - **Vulcan Shotgun:** fires uncharged shots while held. Adds **Charged Shotgun** as a secondary, reaching 200% damage per pellet at full charge with no damage falloff.
 - **Power Tazer:** has a 4-second cooldown (down from 5s), bounces up to 3 times (up from once) and slows targets.
 - **Orbital Probe:** cooldown is 9 seconds (down from 11s). 
-- **Supply Beacons:** recharge every 60 seconds, allow up to 3 active beacons and count as holdout zones.
+- **Supply Beacons:** recharge every 60 seconds, allow up to 3 active beacons and count as holdout zones. The beacon indicator is centred above the special icon by default.
 - **Healing Beacon:** lasts 30 seconds and also grants 30% attack speed and 25 armour.
 - **Shocking Beacon:** now deals 350% damage (up from 0%), can critically strike and slows enemies.
 - **Resupply Beacon:** lasts 45 seconds and regenerates uses instead of permanently consuming them; a use recharges every 10 seconds, restores all skill slots (except beacons) and grants 50% maximum health as barrier.
@@ -120,6 +125,7 @@
 
 # Seeker
 
+- Base stats nerfed to **110 health**, **33 health per level** and **0 armour**.
 - **Soul Spiral:** grants barrier based on current maximum health instead of level-one health.
 - **Meditate:** Heals allies for 10% (up from 4%), plus 5% per Tranquility stack (up from 2%).
 

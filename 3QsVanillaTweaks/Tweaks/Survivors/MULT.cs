@@ -12,6 +12,7 @@ using HarmonyLib;
 using RoR2;
 using RoR2.Projectile;
 using RoR2.Skills;
+using RoR2.UI;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.Networking;
@@ -152,6 +153,8 @@ namespace Tweaks.Survivors
                         Patch(typeof(FireNailgun), nameof(FireNailgun.OnExit), postfix: nameof(EndNailgunSpin));
                         harmony.Patch(AccessTools.Method(typeof(FireNailgun), nameof(FireNailgun.FixedUpdate)),
                             transpiler: new HarmonyMethod(typeof(MULT), nameof(NailgunSpinIL)));
+                        harmony.Patch(AccessTools.Method(typeof(CrosshairController), "SetCrosshairSpread"),
+                            transpiler: new HarmonyMethod(typeof(MULT), nameof(NailgunCrosshairIL)));
                     }
                 }
                 if (profiles.ContainsKey(7))
@@ -424,6 +427,36 @@ namespace Tweaks.Survivors
             }
             if (!patchedRate || !patchedSpread)
                 ThreeQsVanillaTweaks.Log.Warning("MUL-T Auto-Nailgun spin-up could not patch both sustained fire rate and spread.");
+        }
+        private static IEnumerable<CodeInstruction> NailgunCrosshairIL(IEnumerable<CodeInstruction> instructions)
+        {
+            MethodInfo bloomAngle = AccessTools.PropertyGetter(typeof(CharacterBody), nameof(CharacterBody.spreadBloomAngle));
+            MethodInfo displayedAngle = AccessTools.Method(typeof(MULT), nameof(DisplayedCrosshairSpread));
+            bool patched = false;
+            foreach (CodeInstruction code in instructions)
+            {
+                if (code.Calls(bloomAngle))
+                {
+                    code.opcode = OpCodes.Call;
+                    code.operand = displayedAngle;
+                    patched = true;
+                }
+                yield return code;
+            }
+            if (!patched)
+                ThreeQsVanillaTweaks.Log.Warning("MUL-T Auto-Nailgun could not patch crosshair bloom.");
+        }
+        private static float DisplayedCrosshairSpread(CharacterBody body)
+        {
+            if (IsMULT(body) && C.Get(nailgunSpinEnabled) && body.skillLocator)
+            {
+                SkillLocator skills = body.skillLocator;
+                // Power Mode assigns its second primary weapon to the secondary slot.
+                if (skills.primary?.skillDef?.activationState.stateType == typeof(FireNailgun) ||
+                    skills.secondary?.skillDef?.activationState.stateType == typeof(FireNailgun))
+                    return 0f;
+            }
+            return body.spreadBloomAngle;
         }
         private static void BeforeBullet(BulletAttack __instance)
         {

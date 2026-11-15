@@ -163,7 +163,8 @@ namespace Tweaks.Bazaar
             Weight("Power Shape", 0f, run => run.availablePowerShapeItemsDropList);
             LanguageAPI.Add(NameToken, "Hallowed Pool");
             LanguageAPI.Add(ContextToken, "Banish the displayed item");
-            availablePickupsChanged = A.Field(typeof(Run), "m_onAvailablePickupsModified");
+            availablePickupsChanged = A.Field(typeof(Run), nameof(Run.onAvailablePickupsModified))
+                ?? A.Field(typeof(Run), "m_onAvailablePickupsModified");
             basicSelector = A.Field(typeof(BasicPickupDropTable), "selector");
             RoR2Application.onLoad += PreparePrefab;
             BazaarSpawnHelper.Register(typeof(HallowedPool), "HallowedPool", nameof(AfterStageStart));
@@ -448,8 +449,8 @@ namespace Tweaks.Bazaar
             var state = bans.GetOrCreateValue(run);
             state.Items.Add(item.itemIndex);
             FilterRunPools(run, state);
-            if (availablePickupsChanged?.GetValue(null) is Action<Run> refresh)
-                refresh(run);
+            if (availablePickupsChanged != null)
+                (availablePickupsChanged.GetValue(null) as Action<Run>)?.Invoke(run);
             else if (!logged)
             {
                 logged = true;

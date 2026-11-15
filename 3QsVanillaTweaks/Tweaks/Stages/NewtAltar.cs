@@ -56,7 +56,7 @@ namespace Tweaks.Stages
             Add("blackbeach2", "Distant Roost (Alternate)", "A");
             Add("snowyforest", "Siphoned Forest", "B");
             Add("lakes", "Verdant Falls", "C");
-            Add("lakesnight", "Viscous Falls", "B");
+            Add("lakesnight", "Viscous Falls", "A");
             Add("village", "Shattered Abode", "A");
             Add("villagenight", "Disturbed Impact", "D");
             Add("goolake", "Abandoned Aqueduct", "C");

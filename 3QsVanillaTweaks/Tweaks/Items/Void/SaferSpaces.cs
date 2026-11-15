@@ -1,27 +1,41 @@
-using System;
-using System.Collections.Generic;
-using System.Reflection;
-using System.Reflection.Emit;
-using HarmonyLib;
 using RoR2;
 using UnityEngine;
-using A=ThreeQsVanillaTweaks.ReflectionTools;
-using U=Tweaks.Items.Uncommon.UncommonItemSupport;
-using N=Tweaks.Items.Uncommon.UncommonNative;
+using Glass = Tweaks.ModCompatibility.LookingGlassStatRegistry;
+
 namespace Tweaks.Items.Void
 {
     // Native item ID: BearVoid. Configuration and hooks for this item only.
     internal static class SaferSpaces
     {
-        const string Body="RoR2.CharacterBody",Health="RoR2.HealthComponent",Events="RoR2.GlobalEventManager";
-        internal static void Init()=>VoidConfigSupport.Register("BearVoid",Configure);
+        const string Health = "RoR2.HealthComponent";
+        const string RechargeTimeKey = "Recharge Time";
+        const string RechargeReductionKey = "Recharge Reduction Per Stack (%)";
+        const float NativeRechargeTime = 15f;
+        const float NativeRechargeMultiplier = .9f;
+
+        internal static void Init() => VoidConfigSupport.Register("BearVoid", Configure);
+
         static void Configure(VoidConfig c)
         {
-            var v=c.Values;
-            c.Number("Recharge Time",15,"Base recharge time before the native per-stack reduction.");c.Number("Recharge Reduction Per Stack (%)",10,"Multiplicative recharge reduction per stack.");
-            v.Literal(Health,"TakeDamageProcess",15,()=>v.F("Recharge Time"),"BearVoidReady",0,140);v.Literal(Health,"TakeDamageProcess",15,()=>v.F("Recharge Time"),"BearVoidReady",1,140);
-            v.Literal(Health,"TakeDamageProcess",.9f,()=>Mathf.Clamp01(1-v.F("Recharge Reduction Per Stack (%)")/100),"BearVoidReady",0,140);v.Literal(Health,"TakeDamageProcess",.9f,()=>Mathf.Clamp01(1-v.F("Recharge Reduction Per Stack (%)")/100),"BearVoidReady",1,140);
+            var values = c.Values;
+            c.Number(RechargeTimeKey, NativeRechargeTime, "Base recharge time before the native per-stack reduction.");
+            c.Number(RechargeReductionKey, 10, "Multiplicative recharge reduction per stack.");
+
+            float RechargeTime() => values.Active ? values.F(RechargeTimeKey) : NativeRechargeTime;
+            float RechargeMultiplier() => values.Active
+                ? Mathf.Clamp01(1f - values.F(RechargeReductionKey) / 100f)
+                : NativeRechargeMultiplier;
+
+            for (int occurrence = 0; occurrence < 2; occurrence++)
+            {
+                values.Literal(Health, "TakeDamageProcess", NativeRechargeTime, RechargeTime, "BearVoidReady", occurrence, 140);
+                values.Literal(Health, "TakeDamageProcess", NativeRechargeMultiplier, RechargeMultiplier, "BearVoidReady", occurrence, 140);
+            }
             c.Assets("RoR2.BearVoidBehavior");
+
+            Glass.RegisterItem(() => DLC1Content.Items.BearVoid ? DLC1Content.Items.BearVoid.itemIndex : ItemIndex.None,
+                (_, stacks, text) => Glass.AddValue(text, "Total Cooldown",
+                    RechargeTime() * Mathf.Pow(RechargeMultiplier(), Mathf.Max(1, stacks)), "s", "#91C8DD"));
         }
     }
 }

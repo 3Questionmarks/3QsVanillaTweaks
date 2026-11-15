@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.5.0] - Remote Operation, Bazaar Unlocks and Stage Expansion
+
+### Added
+
+- **Remote Operation** adds configurable multiplayer loadouts for the Gunner, Healing, Junk, Emergency, Incinerator, Cleanup, Missile, Jailer, Barrier, Bombardment and Freeze Drones, plus the TC-280 Prototype. Each has its own stats and skill settings.
+- **Player-controlled drones** can interact with everything on the stage that a normal player would by default. Drone spawns are unlimited per stage, with a 180-second Disconnect cooldown that also applies after drone death. You can manually disconnect from the drone to change drones, or respawn if you have a revive item. Teleporter completion and supported hidden-realm boss defeats return drone players to their original survivors at the drone's location. Allowing drones to charge the Teleporter is optional and off by default. Drone purchase costs are configurable, but generally increased to acount for them being stronger.
+- **Bazaar unlock mode** This mode adds some progression to the shop, this default to be a meta progression system that resets when you win a run, but can be configured to reset on every run, last unitil you reset the game, or be a perminant meta progression system. The bazaar now spawns a bunch of interactables that are locked with crystal locks. You can spend Lunar Coins to break these crystal locks on the interactables, enabling thier use. By default this mode is only advailable if you have the artifact of fleeting moon enabled for the run.
+- **Bazaar progression** has settings for which interactables spawn, whether they start locked and how many coins they cost to unlock. Unlocks go to everyone currently in the game by default, with host-only and buyer-only options. Progress that carries across runs follows the host. Unlocks reset on a victory or Fate Unknown by default, with alternatives for every visit, every run, every launch or permanent unlocks. Launch and permanent progression can be scoped by survivor or game mode. Game mode separation is on by default (although not really usable since eclipse doesn't allow artifacts to access it).
+- **The Bazaar** gains Hallowed Pools, Shrines of the Woods, the Wandering Chef and more copies of existing extras, including printers, cauldrons, lockboxes, pods and seers. Both modes use the same placement settings, although unlock mode can override. In normal mode the second Hallowed Pool and third Lunar Seer each default to a 50% spawn chance, with most of the added duplicate slots off by default. In unlock mode the third lockbox is always a Void Lockbox and the first two are regular lockboxes.
+- **Hallowed Pools** cost 1 Hex by default and banish the displayed item from the run's loot pools. A banished item will not appear for the rest of the run.
+- **Bazaar Lunar Coin use fees** can be configured independently of unlock prices. The Cleansing Pool defaults to 1 Lunar Coin alongside its usual item or equipment payment. Lunar Seers default to 1 coin per use and Shrines of the Woods also use 1 coin in the Bazaar. Other new surcharges default to zero.
+- **Newt** speaks in chat when players arrive, buy a Lunar shop item or Lunar Pod, unlock an interactable, use an exit portal or kill him. His dialogue is on by default and has a single toggle.
+- **Fleeting Moon objectives** award 3 temporary Lunar Coins for defeating a boss, 2 on stage completion if all items were collected and 5 per Karma gained. These rewards do not contribute to permanent coin earnings. The optional team wallet is on by default and deducts purchases from every player while the artifact is active.
+- **The Shrine of the Woods** retains its healing zone and changes a skill in the slot indicated by the shrine's colour. Special cases such as Captain's two beacons and MUL-T's second primary have their own settings.
+- **Teleporter rewards** in multiplayer come in individual pickups with identical contents for each player. Players can claim every item in their pickup. Boss-item replacement defaults to 15% per reward. Horde of Many rewards have a 25% chance per reward to become a bundle of 3 Common items. Drifter's Tinker cannot reroll these pickups by default.
+- **Barrels and Stalks** gain configurable gold, experience and scaling. Cloaked chests briefly glimmer every 4 seconds by default, with configurable drop weights that default to 80% Uncommon and 20% Legendary.
+- **Director settings** cover interactable costs and limits, per-stage loot budgets, starting and recurring enemy credits, and monster spawn limits. Regular stage directors default to 60 living monsters and 8 spawns per wave. Starting and recurring enemy credits default to 1.2×. Teleporter boss selection gives other eligible bosses more weight as the run progresses. Ambient enemy levels can reach 9,999, and enemies no longer heal on level-up by default. Player levels default to a cap of 100 using the original total experience budget.
+- **The enemy item blacklist** is configurable and applies to enemy item rolls such as Evolution, Void Fields and Simulacrum.
+- **Modded stage support** adds configurable features and interactable credits for 13 maps and variants. Supported maps keep their native features such as Desolate Coast's eggs and fixed Stage 4 legendary chests.
+  - **Stage 1** includes Desolate Coast, which has a confirmed Newt Altar and 300 base interactable credits. First-stage Halcyon Shrines and Concept Reliquaries can spawn on modded stages with the relevant expansion enabled.
+  - **Stage 2** gains a guaranteed Command Chest on Broadcast Perch and Wetland Aspect's skeleton encounter and Hex drops on Wetland Downpour.
+  - **Stage 3** uses the Rallypoint Delta rules for Fogbound Lagoon's existing timed chest. Forlorn Wreckage gains three possible timed chest locations using those same rules.
+  - **Stage 4** supports fixed legendary chests on Sunset Tropics, Midnight Tropics, Stagnant Pipeworks, Sleeping Hollows and Sunken Tombs. Stagnant Pipeworks and Sleeping Hollows share selection weight and can appear before or after looping by default. The day and night variants use matching interactable credits (as it is intended for you to configure them to be able to appear before an after looping)
+  - **Stage 5** gets fixed Scrappers on Ancient Observatory, Hollow Summit and Frozen Summit. Hollow Summit and Frozen Summit use matching interactable credits.
+- **Bulwark's Ambry** guarantees an Artifact Key after 25 eligible enemy kills without one by default. A random key drop resets the counter.
+- **The debug placement editor** opens on F6 and saves positions and rotations for registered interactables, stage features and supported pickups. Also added a Remote Operation test menu on F7, a Fleeting Moon coin grant on F9, extra-player simulation, test loadout presets, skill projectile and sound logging, and expanded stage selection and altar diagnostics. These require the debug master switch, which is off by default.
+
+### Changed
+
+- **Stage selection** now avoids repeating a stage family for the host's entire play session by default, including earlier stages in the current run, while another eligible destination exists. Alternate layouts and day/night variants count as one family. The previous-run setting is still available.
+- **Confirmed Newt Altars** on supported modded stages can spawn alongside random native locations. Viscous Falls now defaults to location A.
+- **Guaranteed Stage 4 legendary chests** are recognised more reliably, including on supported modded maps. The guaranteed chest drops an item per player by default.
+- **Halcyon Shrines and the special Gilded Coast route** only guarantee a green portal while False Son is undefeated in the current run.
+- **The Bazaar layout** uses updated default placements for the added interactables.
+- **Commando's Combat Roll** restocks secondary and special skills by default, with separate settings for each. Other abilities can be used while cooking Frag Grenades.
+- **MUL-T's Nailgun** spins up over 5 seconds of sustained fire by default, reaching 150% fire rate and 50% spread. Spin decays after releasing the trigger. The crosshair no longer expands while using the Nailgun with spin-up enabled.
+- **Mercenary's Focused Assault and Eviscerate** +2 seconds of base cooldown. Eviscerate can reset its own cooldown once per cast when it kills an enemy. Improved kill tracking for Focused Assault and Mercenary's jump refresh.
+- **Default Survivor Stats** Acrid and Huntress default to 8 m/s movement speed, with higher acceleration for Huntress. Bandit gains 5% base crit. Artificer starts with 55 health and 55 shield. Seeker defaults to 110 health and 0 base armour.
+- **Skill Icons** Icons added by this mod have been updated. 
+- **Purity and Benthic Bloom** swap their positive effects by default. Purity upgrades items and keeps its bad luck. Benthic Bloom gains flat cooldown reduction and still corrupts 57 Leaf Clover. The upgrade effect defaults to 5 selections plus 3 per extra stack, prioritises scrap, prefers the same item category and upgrades one copy per selection, instead of the entire stack. The effect swap and upgrade rules are configurable.
+- **Hex of Loss** removes permanent items when the Teleporter starts charging. It prioritises lower-tier scrap and shows which item was lost. Rain, Strife and Greed use diminishing stacking penalties.
+- **Delicate Watch rework** ignores passive damage-over-time ticks such as bleed and burn and also ignores void fog by default. Fall damage is ignored by a separate, default-on setting.
+- **Squid Polyp** periodically summons a Squid Turret near the centre of an actively charging holdout zone. The default interval is 15 seconds per holder.
+- **Executive Card** keeps unbought multishop terminals open for everyone while a player holds it. Gaining a card can reopen previously closed terminals. Cashback is configurable and defaults to 10%. RetroactiveMacro takes over retroactive reopening when installed.
+- **Sale Star** supports multiple chest uses per stage, including reopening already opened chests with RetroactiveMacro's Sale Star option. Each successful reopen spends one use, and the item tooltip reflects the active behaviour.
+- **Optional integrations** add QoL Chests glow range and blindness settings, expand LookingGlass support and coordinate the paused-timer Recycler cooldown with ReduceRecycler.
+
+### Fixed
+
+- **Resonance Disc** Now correctly uncharges after shooting instead of remaining primied
+- **Newt** can receive on-hit effects such as bleed. Forgive Me Please can trigger on-kill effects such as Gasoline and Chronic Expansion while scenery is still filtered out.
+- **Kinetic Dampener** preserves its native shield while applying configured bonuses.
+- **Chance Doll** bonus drops launch clear of the shrine.
+- **The Logbook** handles entries with missing lore and hides the released form of Neutronium Weight. Restored Substandard Duplicator's temporary-copy text and Executive Card's full coloured description. LookingGlass shows Safer Spaces' total cooldown and updated Corpsebloom, Purity and Benthic Bloom details.
+- **Newt Altar discovery, and fire damage ** received fixes for startup and stage-loading errors. 
+
+### Notes
+
+- Existing settings generally keep their saved values. Reset the entries you want to adopt from this release, including the preferred altar for Viscous Falls and the boss-item replacement chance if you already changed it.
+- The Bazaar placement editor saves overrides separately from the regular Bazaar configuration. A saved override takes precedence over the new built-in position in either mode.
+- Multiplayer and optional mod compatibility testing remain ongoing. Please include a BepInEx log and relevant settings when reporting an issue.
+
 ## [0.4.0] - Item Rebalance, Equipment Configuration and Multiplayer Hexes
 
 ### Added

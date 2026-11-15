@@ -5,7 +5,7 @@
 - Guarantees a Halcyon Shrine on first-stage maps.
 - Guarantees a Concept Reliquary on eligible first-stage maps.
 - Uses Primordial Teleporters on normal stages from stage 6 onwards, allowing a choice between the Moon and continuing to loop.
-- Avoids stage families visited in the previous hosted run, including across game restarts. Falls back to the available stages if every eligible destination was visited.
+- Avoids stage families visited in the current play session. Falls back to the available stages if every eligible destination was visited. 
 - Guarantees a selected Newt Altar location on supported stages. If the selected location replaces a normally permanent altar, that extra altar has a 25% chance to remain.
 - Guaranteed Legendary Chests award an item for each player.
 
@@ -136,3 +136,49 @@
 # Eclipse
 
 - Allows Void Locus and Planetarium portal routes in Eclipse.
+
+# Directors and Stage Budgets
+
+- Regular stages use 1.2 times the starting enemy credits by default. Recurring combat director income also defaults to 1.2 times vanilla. The recurring multiplier does not increase scripted or shrine encounter budgets.
+- The regular stage director allows up to 60 living monsters (vanilla 40) and attempts up to 8 spawns per wave (vanilla 6). Scripted spawns can exceed the living monster limit.
+- Each distinct Teleporter boss spawned on a stage increases the selection weight of other eligible bosses by 1 on future stages. Map restrictions still apply.
+- Interactable budgets are configurable per supported stage. Base values are for one player, with 50% added per additional player. Distant Roost and Titanic Plains use 250 credits (vanilla 220), Abandoned Aqueduct uses 280 (vanilla 220), and Sky Meadow uses 550 (vanilla 520).
+
+| Regular-stage interactable | Default director cost | Vanilla cost |
+| --- | ---: | ---: |
+| Lunar Pod | 20 | 25 |
+| Void Seed | 30 | 50 |
+| Void Potential | 30 | 40 |
+| Cloaked Chest | 5 | 10 |
+| Shrine of the Woods | 20 | 15 |
+| Stalk | 5 | 15 |
+| Common Printer | 10 | 5 |
+| Legendary Printer | 10 | 15 |
+| Gunner Turret | 5 | 10 |
+| Large Drone | 25 | 30 |
+| TC-280 Prototype | 35 | 40 |
+
+- Natural Shrine of the Woods and TC-280 Prototype spawns are each capped at one per regular stage by default. Their limits and costs are configurable separately.
+
+# Modded Stages
+
+- These settings apply when the relevant map is installed. Confirmed Newt Altar placements follow the configured altar spawn mode and can coexist with the map's native random altars.
+- Broadcast Perch's Command Chest uses the same reward and price settings as the Iron stages. RegisterCommandChest supplies the optional distinct model.
+- Fogbound Lagoon and Forlorn Wreckage follow Rallypoint Delta's chest timer and reward settings after completing [REDACTED].
+- Stagnant Pipeworks and Sleeping Hollows each receive half the family's stage-selection weight and can appear before or after looping by default.
+
+| Stage | Map | Added or supported feature | Base interactable credits |
+| --- | --- | --- | ---: |
+| 1 | Desolate Coast | Confirmed Newt Altar. Native eggs remain available. | 300 |
+| 2 | Broadcast Perch | Guaranteed Command Chest | 280 |
+| 2 | Wetland Downpour | Wetland Aspect's skeleton encounter and Hex reward | 280 |
+| 3 | Fogbound Lagoon | Rallypoint Delta rules for the existing timed chest | 280 |
+| 3 | Forlorn Wreckage | Up to 3 timed chests following Rallypoint Delta rules | 280 |
+| 4 | Sunset Tropics | Fixed Legendary Chest rewards | 400 |
+| 4 | Midnight Tropics | Fixed Legendary Chest rewards | 400 |
+| 4 | Stagnant Pipeworks | Fixed Legendary Chest rewards | 400 |
+| 4 | Sleeping Hollows | Fixed Legendary Chest rewards | 400 |
+| 4 | Sunken Tombs | Fixed Legendary Chest rewards | 400 |
+| 5 | Ancient Observatory | Guaranteed Scrapper | 570 |
+| 5 | Hollow Summit | Guaranteed Scrapper | 550 |
+| 5 | Frozen Summit | Guaranteed Scrapper | 550 |

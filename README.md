@@ -4,23 +4,19 @@ A configurable collection of balance changes and quality-of-life improvements fo
 
 Basically everything has its own config toggles and settings. The defaults are intended to be balanced-ish but I'm not the best player so my opinions on what is good or bad/need changing is going to differ to other peoples. You can edit the setting to suit your idea of balance, or revert changes to vanilla. Gameplay settings follow the host's configuration (Hopefully).
 
-**Current version: 0.4.0**
+**Current version: 0.5.0**
 
-## What's new in 0.4.0?
+## What's new in 0.5.0?
 
-- **Item rebalance:** changes across every main item rarity, including reworks for Delicate Watch, Hunter's Harpoon, Happiest Mask, Symbiotic Scorpion and Neutronium Weight. Many damaging items trade proc chains for stronger direct effects. This is in hopes of moving the game away from late game proc chains that just whipe the map or deal absurds amount of damage in a single hit.
-- **More configuration:** item and equipment settings are organised by rarity, with vanilla options for otherwise unchanged items, Meal items and elite aspects. Unchanged items have their changes disabled by default, but if you want to edit them, you can by just enabling it in the config, and changing the values.
-- **Multiplayer-focused Hexes:** several Hexes now penalise their holder instead of the whole team.
-- **Survivors and allies:** revised Laser Cyclone return and recharge behaviour, shorter Captain beacon lifetimes, more active survivor clones and void-fog immunity for allied drones.
-- **Holdout events:** pillars and Deep Void Signals gain charge from kills and now spawn stronger enemies the more you activate. Teleporter charging after the boss is defeated now defaults to 1.5 times normal speed and no longer effects the soul-binding trial (overcharging teleporter event with hallowed concepts).
-- **Fixed several bugs: 
-	-Railgunner’s scoped secondary: corrected stock handling that could give it around 100,000–1,000,000 stocks instead of the intended behaviour.
-	-Added Common cauldrons: fixed subsequent purchases getting stuck after the first use, accepting items without producing a reward. Applies to the Bazaar and Void Locus versions.
-	-Shield/health recalculation: corrected maximum health fluctuating after shields broke and began regenerating when holding % based HP increase items.
-	-Extra pillars and Deep Void Signals: corrected enemies no longer spawning when activating encounters beyond the required count.
-	-Tenebrous Quagmire’s Hallowing Shrine: corrected spawning an individual hand without its shrine base, which caused repeated exceptions when used.
-	-Teleporter charging: prevented post-boss charging multiplier from incorrectly affecting the Soul-binding ritual and special overcharge phase.
-	-Optimised Startup: Fixed really inefficient implementations for item and newt changes, the mod should now initilise much faster (50+ seconds down to ~10 after change in my tests)
+- **Remote Operation** Gives Remote Operation drones configurable stats and skill sets. In general every drone now has 4 abilities that make them feel more interesting to play. They have had their HP and damage tuned down a bit but the extra skill more than make up for it. Additionally, you can now disconnect from the drone with a press of the Equipment button to return to spectating or another drone, this will also trigger revival items to allow you to play your survivor gain if you obtain one while a drone. Drone players can now interact with the world like any normal player would, although they still cannot charge teleporter zones. Drone players return to their survivors automatically when the Teleporter finishes charging or after a supported hidden-realm boss is defeated.
+- **Bazaar Unlock Mode** This mode adds some progression to the shop, this default to be a meta progression system that resets when you win a run, but can be configured to reset on every run, last unitil you reset the game, or be a perminant meta progression system. The bazaar now spawns a bunch of interactables that are locked with crystal locks. You can spend Lunar Coins to break these crystal locks on the interactables, enabling thier use. By default this mode is only advailable if you have the artifact of fleeting moon enabled for the run.
+- **Hallowed Pools, Wandering Chef and other new bazzar things** Adds new Hallowed Pools that let you prevent items from appearing for the run by spending Hexes. Also adds a Wandering chef to the bazaar that can cook you one specific meal with the items you are carring, and adds a Shrines of the Woods to change your skill loadout mid run. Newt now uses some prevoiusly unused dialogue (as well as some bonus ones) and reacts to actions you take in the bazaar. Also the Cleansing Pool in the bazaar now requires lunar coins to use.
+- **Fleeting Moon** In multiplayer, each player now shares lunar coins with this artifact on, rather than having their own total. Defeating bosses, collecting every item on a stage and gaining Karma award extra coins.
+- **Stage selection** Avoids repeats across the host's play session when possible, not just from the previous run. Also added support for 13 modded maps/variants - adding consistant features in the same manor to the vanilla maps, and tuning some of their interactable budgets to be more balanced with the changes made to the vanilla stages.
+- **Teleport Rewards** In multiplayer, rather than the teleporter directly droping items for players, instead they will drop a single potential for each player that cointains all the items dropped for 1 player as to prevent large item drops causing lag.
+- **Characters** Commando can use other skills while cooking grenades, and Combat Roll restocks secondary and special skills. MUL-T's Nailgun gains fire rate and accuracy as it spins up. 
+- **Items** Purity and Benthic Bloom swap their positive effects by default. The Delicate Watch rework ignores passive damage and fall damage by default.
+- **Gameplay fixes** restore Resonance Disc targeting and visuals and Forgive Me Please on-kill effects, as well as serval other bugs with items that I can't remember exactly but I know there was more. The update also fixes Logbook and tooltip issues and adds support for RetroactiveMacro, ReduceRecycler and QoL Chests.
 
 ## Disclaimers
 
@@ -44,7 +40,8 @@ If you do not want to use this mod because of this fact, then I fully respect yo
 - **Survivor options:** configurable stats and skill values such as damage, cooldowns, stocks, durations and projectile behaviour. Several underperforming skills receive buffs or alternative behaviour.
 - **Item choices:** rebalanced stacking, optional reworks, regenerating consumed items, broader uses for Regenerating Scrap and elite aspect crafting at the Wandering Chef. Many changes aim to improve multiplayer usefulness or reduce lag and late-game map-clearing proc chains.
 - **Defensive mechanics:** configurable one-shot protection, shield and barrier gating, shield recharge, healing calculations and barrier decay.
-- **Bazaar and routes:** extra interactables, cauldrons, Lunar shop options and Newt settings. It is also now possible to go from the hallowed concepts secret boss into false son (then into alloyed collective).
+- **Bazaar and routes:** extra interactables, cauldrons, Lunar shop options and Newt settings including Newt dialogue and optional unlock meta progression. It is also now possible to go from the hallowed concepts secret boss into false son (then into alloyed collective).
+- **Multiplayer** gets player-controlled Remote Operation drones, individual Teleporter reward pickups, Lunar Coin sharing and holder-specific Hex penalties.
 - **Quality of life:** Lunar Coin sharing, out-of-bounds pickup recovery, shrine options, multiplayer drone interaction and faster Recycler use while the run timer is paused.
 - **Artifact of the Fleeting Moon:** makes Lunar Coins a per-run currency without affecting the permanent coins in your save.
 
@@ -57,8 +54,13 @@ If you do not want to use this mod because of this fact, then I fully respect yo
 - **RegisterCommandChest:** distinct Command Chests on the Iron stages.
 - **LoopVariantConfig:** takes precedence over overlapping stage-variant changes.
 - **ZetAspects:** supported aspect crafting; aspect equipment settings yield to its configuration.
+- **RetroactiveMacro** handles reopening closed multishops and supports this mod's Sale Star use count when its chest-reopen option is active.
+- **ReduceRecycler** works alongside the paused-timer Recycler cooldown.
+- **QoL Chests** gains configurable highlight range and an option to hide glow while blinded.
+- **RTAutoSprintEx** coordinates sprint behaviour for supported skills.
+- **Modded stage support** adds optional features for maps by wormsworms, Winslow and JaceDaDorito.
 
-These integrations do not make their respective mods mandatory. Multiplayer and compatibility testing remain ongoing; use compatible mod lists and matching versions when playing together.
+These mods are completly optional, this is intended to use with these mod as it is what I am using, but it should also work fine without them. mandatory.
 
 ## Updating
 
@@ -68,4 +70,5 @@ Existing configuration values will be preserved though updates, so if I have cha
 
 ## Feedback
 
+Multiplayer and compatibility testing remain ongoing; use compatible mod lists and matching versions when playing together.
 Bug reports and balance suggestions are welcome. Include your BepInEx log, mod version, relevant settings and whether you were playing alone, hosting or joining another player.

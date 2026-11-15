@@ -8,6 +8,9 @@ namespace Tweaks.Bazaar
 {
     internal static class BazaarShrineOfTheWoods
     {
+        private const string SecondSlot = BazaarSpawnHelper.ExtraSection + "Shrine of the Woods 2";
+        private const string PreviousSecondPose = "-105.5, -26.9977055, -50.19, 0, 205.537445, 0";
+        private const string SecondPose = "-105.09, -26.66, -50.35, 0, 205.537445, 0";
         private static BazaarSpawnHelper.Settings settings, second;
         private static Stage lastStage;
 
@@ -16,8 +19,12 @@ namespace Tweaks.Bazaar
             settings = BazaarSpawnHelper.Bind("Bazaar - 05 Extra Interactables - Shrine of the Woods",
                 "Shrine of the Woods", null, 60f, -108.72f, -26.08f, -45.99f, .43f, 0f, .90f,
                 exactPose: "-109.5, -26.9977055, -47.69, 0, 210, 0");
-            second = BazaarSpawnHelper.BindFormerUnlockOnly("Shrine of the Woods 2", null, -102.84f, -25.16f, -50.60f, .43f, 0f, .9f,
-                exactPose: "-105.5, -26.9977055, -50.19, 0, 205.537445, 0");
+            second = BazaarSpawnHelper.BindFormerUnlockOnly("Shrine of the Woods 2", null,
+                -105.09f, -26.66f, -50.35f, -.431101f, 0f, -.902304f, exactPose: SecondPose);
+            if (second.ExactPose.Value.Trim() == PreviousSecondPose)
+                second.ExactPose.Value = SecondPose;
+            RoR2Application.onLoad += () => DebugStuff.InteractablePlacementEditor.UpdateSavedPose(
+                "bazaar", SecondSlot, PreviousSecondPose, SecondPose);
             BazaarSpawnHelper.Register(typeof(BazaarShrineOfTheWoods), "Woods", nameof(AfterStageStart));
         }
 
