@@ -28,7 +28,7 @@ namespace Tweaks.DebugStuff
         internal static void Init()
         {
             enabled = ModConfig.BindBool("Debug - Stage Selection", "Log Stage Selection Weights", true,
-                "Log every catalogued stage and all referenced normal/looped stage pools at run start, then log constructed pools, effective weighted choices and selected destinations throughout the run. Diagnostic only; does not change weights or consume RNG.",
+                "Log every catalogued stage and all referenced normal/looped stage pools at run start, then log constructed pools, effective weighted choices and selected destinations throughout the run.",
                 clientSide: true);
             Run.onRunStartGlobal += OnRunStart;
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Debug.StageSelectionWeights");

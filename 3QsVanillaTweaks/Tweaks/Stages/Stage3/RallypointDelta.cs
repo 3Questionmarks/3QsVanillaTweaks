@@ -19,6 +19,8 @@ namespace Tweaks.Stages.Stage3
         private static readonly Vector3Config[] Offsets = new Vector3Config[3];
         private static string invalidRewardText;
         private static readonly HashSet<GameObject> ExtendedOpenings = new HashSet<GameObject>();
+        private static readonly HashSet<string> AdditionalScenes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        internal const string TimedChestAddress = "RoR2/Base/TimedChest/TimedChest.prefab";
         private sealed class Vector3Config
         {
             internal ConfigEntry<float> X, Y, Z;
@@ -53,7 +55,17 @@ namespace Tweaks.Stages.Stage3
             UnityEngine.SceneManagement.SceneManager.sceneUnloaded += scene => ExtendedOpenings.Clear();
         }
 
-        private static bool Relevant(TimedChestController chest) => Run.instance && chest && chest.gameObject.scene.name == "frozenwall";
+        internal static void RegisterScene(string scene) => AdditionalScenes.Add(scene);
+
+        internal static int ChestCount(int positions, Xoroshiro128Plus rng)
+        {
+            if (positions < 2 || !ModConfig.Get(extra) || !StageFeatureSpawnHelper.Roll(ModConfig.Get(second), rng))
+                return 1;
+            return positions >= 3 && StageFeatureSpawnHelper.Roll(ModConfig.Get(third), rng) ? 3 : 2;
+        }
+
+        private static bool Relevant(TimedChestController chest) => Run.instance && chest &&
+            (chest.gameObject.scene.name == "frozenwall" || AdditionalScenes.Contains(chest.gameObject.scene.name));
         private static UnlockableDef ChallengeUnlock => RoR2Content.Equipment.BFG ? RoR2Content.Equipment.BFG.unlockableDef : null;
         private static bool Completed(Interactor activator)
         {
@@ -84,8 +96,29 @@ namespace Tweaks.Stages.Stage3
 
         private static void BeforeToggleAwake(SceneObjectToggleGroup __instance)
         {
-            if (!Run.instance || __instance.gameObject.scene.name != "frozenwall" || __instance.toggleGroups == null) return;
-            foreach (var group in __instance.toggleGroups)
+            if (!Run.instance || __instance.toggleGroups == null) return;
+            string scene = __instance.gameObject.scene.name;
+            bool rallypoint = scene == "frozenwall";
+            if (!rallypoint && !AdditionalScenes.Contains(scene)) return;
+            if (rallypoint) ApplyRallypointOffsets(__instance);
+            if (!NetworkServer.active || !ModConfig.Get(extra)) return;
+            for (int i = 0; i < __instance.toggleGroups.Length; ++i)
+            {
+                var group = __instance.toggleGroups[i];
+                if (group.objects == null || group.objects.Length == 0 ||
+                    Array.Exists(group.objects, obj => !IsTimedChestLocation(obj))) continue;
+                group.minEnabled = group.maxEnabled = ChestCount(group.objects.Length, Run.instance.stageRng);
+                __instance.toggleGroups[i] = group;
+            }
+        }
+
+        private static bool IsTimedChestLocation(GameObject obj) => obj &&
+            (obj.GetComponentInChildren<TimedChestController>(true) ||
+             Tweaks.ModCompatibility.Stages.ModdedStageFeatures.HasAddressableSpawner(obj, TimedChestAddress));
+
+        private static void ApplyRallypointOffsets(SceneObjectToggleGroup toggle)
+        {
+            foreach (var group in toggle.toggleGroups)
             {
                 if (group.objects == null || group.objects.Length == 0) continue;
                 var chests = new List<TimedChestController>();
@@ -97,23 +130,6 @@ namespace Tweaks.Stages.Stage3
                 }
                 if (chests.Count == 0) continue;
                 for (int i = 0; i < chests.Count && i < Offsets.Length; ++i) chests[i].transform.position += Offsets[i].Value;
-            }
-            if (!NetworkServer.active || !ModConfig.Get(extra)) return;
-            for (int i = 0; i < __instance.toggleGroups.Length; ++i)
-            {
-                var group = __instance.toggleGroups[i];
-                if (group.objects == null || group.objects.Length == 0) continue;
-                bool allChests = true;
-                foreach (var obj in group.objects) if (!obj || !obj.GetComponentInChildren<TimedChestController>(true)) { allChests = false; break; }
-                if (!allChests) continue;
-                int count = 1;
-                if (group.objects.Length >= 2 && StageFeatureSpawnHelper.Roll(ModConfig.Get(second), Run.instance.stageRng))
-                {
-                    ++count;
-                    if (group.objects.Length >= 3 && StageFeatureSpawnHelper.Roll(ModConfig.Get(third), Run.instance.stageRng)) ++count;
-                }
-                group.minEnabled = group.maxEnabled = count;
-                __instance.toggleGroups[i] = group;
             }
         }
 

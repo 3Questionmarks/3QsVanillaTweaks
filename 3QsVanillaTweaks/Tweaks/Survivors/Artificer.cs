@@ -1,4 +1,3 @@
-using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -175,7 +174,10 @@ namespace Tweaks.Survivors
                 prefabBody = Addressables.LoadAssetAsync<GameObject>("RoR2/Base/Mage/MageBody.prefab").WaitForCompletion().GetComponent<CharacterBody>();
                 nativeMoveSpeed = prefabBody.baseMoveSpeed;
                 harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Survivors.Artificer");
-                if (statsEnabled.Value) { stats = new S.Stats(StatsRoot, prefabBody); stats.Apply(prefabBody); Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBodyAwake)); }
+                if (statsEnabled.Value) { stats = new S.Stats(StatsRoot, prefabBody,
+                    new Dictionary<string, float> { { "baseMaxHealth", 55f }, { "levelMaxHealth", 16.5f },
+                        { "baseMaxShield", 55f }, { "levelMaxShield", 16.5f }, { "baseAcceleration", 60f } });
+                    stats.Apply(prefabBody); Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBodyAwake)); }
                 if (expanded && voltaic)
                 {
                     GenericSkill special = prefabBody.GetComponent<SkillLocator>()?.special;
@@ -346,7 +348,7 @@ namespace Tweaks.Survivors
                 surgePeak = Enumerable.Range(0, 129).Select(n => surgeCurve.Evaluate(n / 128f)).Max();
                 launchVelocity = S.Float(s.Section, "Launch Velocity (m/s)", nativeMoveSpeed * surgePeak, nativeMoveSpeed * surgePeak, "Peak upward launch speed at base movement speed, in metres per second.");
                 launchScale = S.Int(s.Section, "Launch Velocity Scale (%)", 0, 100, "How much movement speed changes the launch velocity. 0 disables scaling.");
-                fallImmunityTime = S.Float(s.Section, "Fall Damage Immunity Time", 5f, 0f, "Ignore fall damage on your first landing within this many seconds of using the skill. 0 disables protection.");
+                fallImmunityTime = S.Float(s.Section, "Fall Damage Immunity Time", 3f, 0f, "Ignore fall damage on your first landing within this many seconds of using the skill. 0 disables protection.");
                 s.Duration = S.Float(s.Section, "Duration", S.Value(sample, "duration"), S.Value(sample, "duration"), "Launch duration in seconds.", 0.001f);
                 s.Radius = S.Float(s.Section, "AOE Radius", S.Value(sample, "blastAttackRadius"), S.Value(sample, "blastAttackRadius"), "Explosion radius in metres.");
                 s.Area = C.Bind(s.Section, "AOE Damage Falloff", S.AreaFalloff.None, "Damage falloff from the centre of the explosion. Vanilla: None.");
@@ -611,14 +613,7 @@ namespace Tweaks.Survivors
         }
         private static BlastAttack.FalloffModel Area(S.AreaFalloff value) => value == S.AreaFalloff.Linear ? BlastAttack.FalloffModel.Linear : value == S.AreaFalloff.HalfLinear ? BlastAttack.FalloffModel.HalfLinear : value == S.AreaFalloff.QuarterLinear ? BlastAttack.FalloffModel.QuarterLinear : value == S.AreaFalloff.SweetSpot ? BlastAttack.FalloffModel.SweetSpot : BlastAttack.FalloffModel.None;
         private static float SurgeMoveSpeed(float original, EntityState state) => ForState(state)?.Index == 7 && IsArtificer(Body(state)) ? SurgeMoveSpeed(Body(state)) : original;
-        internal static float SurgeMoveSpeed(CharacterBody body)
-        {
-            float baseline = body.baseMoveSpeed + body.levelMoveSpeed * Math.Max(0f, body.level - 1f);
-            if (body.isSprinting) baseline *= body.sprintingSpeedMultiplier;
-            float scaled = baseline + (body.moveSpeed - baseline) * C.Get(launchScale) / 100f;
-            return surgePeak <= 0f ? 0f : Math.Max(0f,
-                C.Get(launchVelocity) / surgePeak * scaled / Math.Max(0.001f, nativeMoveSpeed));
-        }
+        internal static float SurgeMoveSpeed(CharacterBody body) => surgePeak <= 0f ? 0f : Math.Max(0f, C.Get(launchVelocity) / surgePeak * (1f + (body.moveSpeed / Math.Max(0.001f, nativeMoveSpeed) - 1f) * C.Get(launchScale) / 100f));
         private static IEnumerable<CodeInstruction> SurgeMovementIL(IEnumerable<CodeInstruction> instructions)
         {
             foreach (CodeInstruction code in instructions)

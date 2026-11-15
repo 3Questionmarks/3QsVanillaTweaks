@@ -122,7 +122,11 @@ namespace Tweaks.Items.Legendary
             if (__instance.isAuthority && b.GetBuffCount(RoR2Content.Buffs.LaserTurbineKillCharge) >= Mathf.Max(1, Mathf.RoundToInt(c.F("Kills Required"))))
             {
                 if (NetworkServer.active)
+                {
                     __instance.GetComponent<LaserTurbineController>().ExpendCharge();
+                    if (c.B("Rework"))
+                        b.SetBuffCount(RoR2Content.Buffs.LaserTurbineKillCharge.buffIndex, 0);
+                }
                 __instance.outer.SetNextState(new EntityStates.LaserTurbine.ReadyState());
             }
 

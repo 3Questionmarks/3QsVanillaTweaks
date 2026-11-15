@@ -1,4 +1,3 @@
-using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -160,7 +159,8 @@ namespace Tweaks.Survivors
             {
                 prefabBody = Addressables.LoadAssetAsync<GameObject>("RoR2/Base/Croco/CrocoBody.prefab").WaitForCompletion().GetComponent<CharacterBody>();
                 harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Survivors.Acrid");
-                if (statsEnabled.Value) { stats = new S.Stats(StatsRoot, prefabBody); Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBody)); }
+                if (statsEnabled.Value) { stats = new S.Stats(StatsRoot, prefabBody,
+                    new Dictionary<string, float> { { "baseMoveSpeed", 8f } }); Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBody)); }
                 if (regenerativeEnabled.Value) LoadRegenerative();
                 if (poisonEnabled.Value) BindToxin(DotController.DotIndex.Poison);
                 if (blightEnabled.Value) BindToxin(DotController.DotIndex.Blight);

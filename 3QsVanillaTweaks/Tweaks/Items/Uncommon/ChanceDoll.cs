@@ -94,7 +94,15 @@ namespace Tweaks.Items.Uncommon
                 if (!c.B("Extra Items Are Copies") && p.Table)
                     pickup = p.Table.GeneratePickup(rng);
                 if (pickup.isValid)
-                    PickupDropletController.CreatePickupDroplet(pickup, p.Shrine.dropletOrigin.position, Quaternion.Euler(0, 360f * i / Mathf.Max(1, count), 0) * new Vector3(3, 12, 3), c.B("Extra Items Are Copies"));
+                {
+                    // Use the shrine's own launch direction and speed. Spread multiple
+                    // extras slightly while keeping them clear of its top surface.
+                    float spread = (i - (count - 1) * .5f) * 12f;
+                    Vector3 velocity = Quaternion.AngleAxis(spread, Vector3.up) *
+                        p.Shrine.dropletOrigin.forward * 20f;
+                    PickupDropletController.CreatePickupDroplet(pickup, p.Shrine.dropletOrigin.position,
+                        velocity, c.B("Extra Items Are Copies"));
+                }
             }
 
             return __exception;

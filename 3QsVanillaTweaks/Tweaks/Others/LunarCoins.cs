@@ -74,6 +74,8 @@ namespace Tweaks.Other
                 ThreeQsVanillaTweaks.Log.Warning("Lunar Coins: drop-rate patch v3 could not find the successful-drop multiplier; vanilla reduction may remain.");
         }
 
+        internal static float ConfiguredStartingChance(float fallback) => initialChancePercent != null && enabled != null && ModConfig.Get(enabled) ? Mathf.Clamp(ModConfig.Get(initialChancePercent), 0f, 100f) : fallback;
+
         private static void OnControllerAwake(PlayerCharacterMasterController __instance)
         {
             if (!ModConfig.Get(enabled) || chanceField == null || __instance == null) return;

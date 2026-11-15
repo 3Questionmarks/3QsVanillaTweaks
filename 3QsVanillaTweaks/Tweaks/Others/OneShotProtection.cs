@@ -23,6 +23,11 @@ namespace Tweaks.Others
         private static bool installed;
         private static readonly FieldInfo timerField = AccessTools.Field(typeof(HealthComponent), "ospTimer");
         private sealed class ProtectionState { internal float ImmuneUntil, CooldownUntil; }
+        private sealed class HitDiagnostic
+        {
+            internal float Health, Shield, Barrier, Maximum, Damage, CooldownRemaining;
+            internal bool Eligible, NativeProtection, Bypass, TranscendenceDisabled, CooldownBuff;
+        }
         private static readonly ConditionalWeakTable<HealthComponent, ProtectionState> states = new ConditionalWeakTable<HealthComponent, ProtectionState>();
 
         internal static void Init()
@@ -46,6 +51,7 @@ namespace Tweaks.Others
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.OneShotProtection");
             harmony.Patch(AccessTools.Method(typeof(HealthComponent), "TakeDamageProcess"),
                 prefix: new HarmonyMethod(typeof(OneShotProtection), nameof(BeforeDamage)),
+                postfix: new HarmonyMethod(typeof(OneShotProtection), nameof(AfterDamage)),
                 transpiler: new HarmonyMethod(typeof(OneShotProtection), nameof(DamageIL)));
             if (!installed) throw new InvalidOperationException("One-shot protection damage hook was not installed.");
             harmony.Patch(AccessTools.Method(typeof(HealthComponent), "TriggerOneShotProtection"), postfix: new HarmonyMethod(typeof(OneShotProtection), nameof(AfterTrigger)));
@@ -89,12 +95,39 @@ namespace Tweaks.Others
             float total = health.health + health.shield + health.barrier;
             return DamageAllowance(Maximum(health), C.Get(threshold), total, excluded);
         }
-        private static bool BeforeDamage(HealthComponent __instance, DamageInfo damageInfo)
+        private static bool BeforeDamage(HealthComponent __instance, DamageInfo damageInfo, out HitDiagnostic __state)
         {
+            __state = null;
+            if (NetworkServer.active && __instance && __instance.alive && __instance.body && __instance.body.isPlayerControlled)
+            {
+                var body = __instance.body;
+                float now = Time.fixedTime;
+                __state = new HitDiagnostic
+                {
+                    Health = __instance.health, Shield = __instance.shield, Barrier = __instance.barrier,
+                    Maximum = Maximum(__instance), Damage = damageInfo.damage,
+                    Eligible = Eligible(body), NativeProtection = body.hasOneShotProtection,
+                    Bypass = (DamageType)(damageInfo.damageType & DamageType.BypassOneShotProtection) == DamageType.BypassOneShotProtection,
+                    TranscendenceDisabled = ShieldMechanics.DisablesOneShotProtection(body),
+                    CooldownBuff = body.HasBuff(cooldownBuff),
+                    CooldownRemaining = states.TryGetValue(__instance, out ProtectionState current) ? Math.Max(0f, current.CooldownUntil - now) : 0f
+                };
+            }
             if (ShieldMechanics.DisablesOneShotProtection(__instance.body)) return true;
             if (!NetworkServer.active || !installed || !C.Get(enabled) || !C.Get(allHits) || !states.TryGetValue(__instance, out ProtectionState state) || !WindowActive(Time.fixedTime, state.ImmuneUntil)) return true;
             damageInfo.rejected = true;
             return false;
+        }
+        private static void AfterDamage(HealthComponent __instance, HitDiagnostic __state)
+        {
+            if (__state == null || !__instance || __instance.alive) return;
+            ThreeQsVanillaTweaks.Log.Warning("One-shot protection lethal-hit diagnostic: " + __instance.body?.name +
+                " health=" + __state.Health + ", shield=" + __state.Shield + ", barrier=" + __state.Barrier +
+                ", counted maximum=" + __state.Maximum + ", incoming raw damage=" + __state.Damage +
+                ", eligible=" + __state.Eligible + ", native OSP=" + __state.NativeProtection +
+                ", bypass flag=" + __state.Bypass + ", Transcendence disables OSP=" + __state.TranscendenceDisabled +
+                ", cooldown buff=" + __state.CooldownBuff + ", cooldown remaining=" + __state.CooldownRemaining +
+                ", immunity active after hit=" + (states.TryGetValue(__instance, out ProtectionState current) && current.ImmuneUntil > Time.fixedTime) + ".");
         }
         private static void AfterTrigger(HealthComponent __instance)
         {

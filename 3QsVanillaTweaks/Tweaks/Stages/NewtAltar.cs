@@ -22,6 +22,13 @@ namespace Tweaks.Stages
         private enum SpawnMode { Vanilla, AtLeast1, OneSpecific }
         private static ConfigEntry<SpawnMode> mode;
         private static ConfigEntry<float> permanentChance;
+
+        internal static bool ShouldEnsureModdedAltar(bool anyAltarPresent)
+        {
+            return mode != null && !DebugStuff.NewtAltarLocations.DisableGuaranteesDuringMapping &&
+                (ModConfig.Get(mode) == SpawnMode.OneSpecific ||
+                 (ModConfig.Get(mode) == SpawnMode.AtLeast1 && !anyAltarPresent));
+        }
         private static readonly Dictionary<string, ConfigEntry<string>> stages =
             new Dictionary<string, ConfigEntry<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -37,7 +44,8 @@ namespace Tweaks.Stages
         {
             mode = ModConfig.Bind(Section, "Spawn Mode", SpawnMode.OneSpecific,
                 "Vanilla: never modify Newt Altar spawns. At Least 1: ensure one altar is active if none spawned. " +
-                "1 Specific: ensure the stage's selected letter is active while leaving other altar locations to vanilla. ");
+                "1 Specific: ensure the stage's selected letter is active while leaving other altar locations to vanilla. " +
+                "Dropdown values: Vanilla, AtLeast1, OneSpecific.");
 
             permanentChance = ModConfig.Bind(Section, "Extra Permanent Altar Chance", 0.25f,
                 "Chance (0.0 to 1.0) to keep an additional, vanilla-permanent altar when OneSpecific guarantees a different position. Does not affect the preferred altar or ordinary vanilla-random altars.");
@@ -266,19 +274,26 @@ namespace Tweaks.Stages
                 "' on '" + scene.name + "' restored to scene-authored local rotation " +
                 originalLocalRotation.eulerAngles.ToString("F1") +
                 " (initialisation deviation " + correction.ToString("F1", CultureInfo.InvariantCulture) + " degrees).");
+            string label = "Newt Altar " + candidate.letter;
+            DebugStuff.InteractablePlacementEditor.Register(altar, label, Section + " - " + label, alreadySpawned: true);
         }
 
         private static HashSet<GameObject> GetToggleGroupAltarObjects(Scene scene)
         {
             var output = new HashSet<GameObject>();
-            foreach (SceneObjectToggleGroup toggle in Resources.FindObjectsOfTypeAll<SceneObjectToggleGroup>())
+            if (!scene.IsValid() || !scene.isLoaded) return output;
+            foreach (GameObject root in scene.GetRootGameObjects())
             {
-                if (toggle == null || toggle.gameObject.scene != scene || toggle.toggleGroups == null) continue;
-                foreach (var group in toggle.toggleGroups)
+                if (!root) continue;
+                foreach (var toggle in root.GetComponentsInChildren<SceneObjectToggleGroup>(true))
                 {
-                    if (group.objects == null) continue;
-                    foreach (GameObject obj in group.objects)
-                        if (IsAltar(obj)) output.Add(obj);
+                    if (!toggle || toggle.toggleGroups == null) continue;
+                    foreach (var group in toggle.toggleGroups)
+                    {
+                        if (group.objects == null) continue;
+                        foreach (GameObject obj in group.objects)
+                            if (IsAltar(obj)) output.Add(obj);
+                    }
                 }
             }
             return output;
@@ -327,29 +342,35 @@ namespace Tweaks.Stages
         internal static List<AltarCandidate> GetCandidates(Scene scene)
         {
             if (!scene.IsValid() || !scene.isLoaded) return new List<AltarCandidate>();
-            var objects = Resources.FindObjectsOfTypeAll<GameObject>()
-                .Where(obj => obj != null && obj.scene == scene && IsAltar(obj))
-                .OrderBy(obj => Hierarchy(obj.transform), StringComparer.Ordinal)
-                .ThenBy(obj => obj.transform.position.x)
-                .ThenBy(obj => obj.transform.position.z)
-                .ToArray();
+            // Walk only the stage hierarchy, including inactive altar locations.
+            var candidates = new List<AltarCandidate>();
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                if (!root) continue;
+                foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!child || !IsAltar(child.gameObject)) continue;
+                    candidates.Add(new AltarCandidate
+                    {
+                        gameObject = child.gameObject,
+                        position = child.position,
+                        hierarchy = Hierarchy(child)
+                    });
+                }
+            }
 
             var output = new List<AltarCandidate>();
             var positions = new HashSet<string>(StringComparer.Ordinal);
-            foreach (GameObject obj in objects)
+            foreach (var candidate in candidates.OrderBy(c => c.hierarchy, StringComparer.Ordinal)
+                .ThenBy(c => c.position.x).ThenBy(c => c.position.z))
             {
-                Vector3 p = obj.transform.position;
+                Vector3 p = candidate.position;
                 string key = p.x.ToString("F2", CultureInfo.InvariantCulture) + "," +
                              p.y.ToString("F2", CultureInfo.InvariantCulture) + "," +
                              p.z.ToString("F2", CultureInfo.InvariantCulture);
                 if (!positions.Add(key)) continue;
-                output.Add(new AltarCandidate
-                {
-                    gameObject = obj,
-                    letter = Letter(output.Count),
-                    position = p,
-                    hierarchy = Hierarchy(obj.transform)
-                });
+                candidate.letter = Letter(output.Count);
+                output.Add(candidate);
             }
             return output;
         }

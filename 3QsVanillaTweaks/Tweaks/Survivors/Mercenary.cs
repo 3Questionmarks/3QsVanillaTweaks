@@ -37,6 +37,8 @@ namespace Tweaks.Survivors
             internal ConfigEntry<float> DistanceScale;
             internal ConfigEntry<bool> ReduceMovementScaling;
             internal ConfigEntry<float> MovementScaling;
+            internal ConfigEntry<float> DashDistance;
+            internal float VanillaDashDistance;
             internal float NativeFinisherRatio = 1f;
         }
         private static readonly Dictionary<int, Profile> profiles = new Dictionary<int, Profile>();
@@ -44,7 +46,7 @@ namespace Tweaks.Survivors
         private static readonly List<Profile> allProfiles = new List<Profile>();
         private static readonly Dictionary<string, ConfigEntry<bool>> switches = new Dictionary<string, ConfigEntry<bool>>();
         private static readonly HashSet<string> patched = new HashSet<string>();
-        private static ConfigEntry<bool> enabled, statsEnabled, passiveEnabled, exposeEnabled, killsResetJump, recoveryScales, slayer, resetOnKill;
+        private static ConfigEntry<bool> enabled, statsEnabled, passiveEnabled, exposeEnabled, killsResetJump, recoveryScales, slayer, resetOnKill, eviscerateAllKillsReset;
         private static ConfigEntry<int> extraJumps, extraDashes, maxKillResets, maxWinds;
         private static ConfigEntry<float> exposeReduction, exposeDamage, delayedDamage, delayedProc, windDuration;
         private static S.Stats stats;
@@ -66,13 +68,15 @@ namespace Tweaks.Survivors
         private sealed class OrbScope { internal FocusCast Previous; internal DelayedHitOrb Orb; }
         private sealed class FocusTracker { internal int Resets; internal bool RefundPending; internal FocusCast Current; }
         private sealed class FocusCast { internal FocusTracker Tracker; internal GenericSkill Slot; internal bool Granted; }
+        private sealed class RecentHit { internal CharacterBody Owner; internal FocusCast Focus; internal bool Eviscerate; internal float Time; }
+        private sealed class RecentHits { internal readonly List<RecentHit> Entries = new List<RecentHit>(); }
         private sealed class ProjectileMarker : MonoBehaviour { internal Profile Profile; internal Vector3 Origin; }
         private sealed class RemoveWind : MonoBehaviour
         { private void Start() { if (NetworkServer.active) NetworkServer.Destroy(gameObject); } }
         private static readonly ConditionalWeakTable<CharacterBody, JumpBudget> jumps = new ConditionalWeakTable<CharacterBody, JumpBudget>();
         private static readonly ConditionalWeakTable<GenericSkill, DashBudget> dashBudgets = new ConditionalWeakTable<GenericSkill, DashBudget>();
         private static readonly ConditionalWeakTable<GenericSkill, FocusTracker> focusTrackers = new ConditionalWeakTable<GenericSkill, FocusTracker>();
-        private static readonly ConditionalWeakTable<DamageInfo, FocusCast> focusDamage = new ConditionalWeakTable<DamageInfo, FocusCast>();
+        private static readonly ConditionalWeakTable<HealthComponent, RecentHits> recentHits = new ConditionalWeakTable<HealthComponent, RecentHits>();
         private static readonly ConditionalWeakTable<Orb, FocusCast> focusOrbs = new ConditionalWeakTable<Orb, FocusCast>();
         private static readonly ConditionalWeakTable<GameObject, List<GameObject>> windInstances = new ConditionalWeakTable<GameObject, List<GameObject>>();
         private static Type State(string suffix) => typeof(EntityState).Assembly.GetType("EntityStates.Merc." + suffix);
@@ -207,7 +211,7 @@ namespace Tweaks.Survivors
                         string method = i == 2 || i == 3 ? "get_dashVelocity" : "FixedUpdate";
                         harmony.Patch(AccessTools.Method(State(movementStates[i]), method), transpiler: new HarmonyMethod(typeof(Mercenary), nameof(MovementSpeedIL)));
                     }
-                if (passiveEnabled.Value || profiles.ContainsKey(4))
+                if (passiveEnabled.Value || profiles.ContainsKey(4) || profiles.ContainsKey(5))
                 {
                     Patch(typeof(GlobalEventManager), "OnCharacterDeath", postfix: nameof(OnKill));
                     RoR2Application.onUpdate += RegisterClient;
@@ -219,7 +223,8 @@ namespace Tweaks.Survivors
         private static void Bind(Profile p)
         {
             S.Skill s = p.Skill; int i = p.Index; object sample = s.Sample;
-            s.Bind(changedAgile: i > 0 ? true : (bool?)null, damage: false);
+            s.Bind(changedCooldown: i == 4 || i == 5 ? s.Definition.baseRechargeInterval + 2f : (float?)null,
+                changedAgile: i > 0 ? true : (bool?)null, damage: false);
             float damage = S.Value(sample, i == 1 || i == 2 ? "baseDamageCoefficient" : "damageCoefficient", 1f) * 100f;
             float proc = S.Value(sample, "procCoefficient", 1f);
             if (i == 6)
@@ -257,7 +262,12 @@ namespace Tweaks.Survivors
                 p.DistanceScale = S.Float(s.Section, "Distance Attack Speed Modifier (%)", 100f, 0f, "How strongly attack speed increases movement during the skill. 100 fully compensates for the shorter animation.");
             }
             if (i == 3)
+            {
                 extraDashes = S.Int(s.Section, "Number Of Times You Can Dash Again", -1, Math.Max(0, (int)S.Value(s.Definition, "maxDashes", 3f) - 1), "Additional dashes granted by hitting an enemy. -1 is unlimited.", -1);
+                p.VanillaDashDistance = prefabBody.baseMoveSpeed * S.Value(sample, "speedCoefficient", 1f) * S.Value(sample, "baseDuration", 1f);
+                p.DashDistance = S.Float(s.Section, "Dash Distance (m)", p.VanillaDashDistance + 1f, p.VanillaDashDistance,
+                    "Blinding Assault dash distance at vanilla movement and attack speed.", 0f);
+            }
             if (i == 4)
             {
                 slayer = S.Bool(s.Section, "Slayer", true, false, "Deal more damage to enemies at low health.");
@@ -268,6 +278,7 @@ namespace Tweaks.Survivors
             }
             if (i == 5)
             {
+                eviscerateAllKillsReset = S.Bool(s.Section, "Kills Reset Eviscerate", true, false, "Kills with Eviscerate reset its cooldown. Each use can grant one reset. Vanilla: False.");
                 float frequency = Math.Max(0.001f, S.Value(sample, "damageFrequency", 7f));
                 s.Interval = S.Float(s.Section, "Damage Interval", 1f / frequency, 1f / frequency, "Seconds between strikes before attack speed is applied.", 0.001f);
                 s.Radius = S.Float(s.Section, "AOE Radius", S.Value(sample, "maxRadius"), S.Value(sample, "maxRadius"), "Maximum distance at which Eviscerate finds an enemy, in metres.");
@@ -319,7 +330,7 @@ namespace Tweaks.Survivors
                 case 2: text = "Unleash a rising slash for " + damage + " that sends you airborne."; break;
                 case 3: text = S.Utility("Stunning. ") + "Dash forward, dealing " + damage + "." + (C.Get(extraDashes) == 0 ? "" : " Hitting an enemy lets you dash again" + (C.Get(extraDashes) < 0 ? " without limit." : " up to " + S.Utility(C.Get(extraDashes) + " additional " + (C.Get(extraDashes) == 1 ? "time" : "times")) + ".")); break;
                 case 4: text = (C.Get(slayer) ? S.Damage("Slayer. ") : "") + "Dash forward, striking enemies for " + damage + ". After a short delay, strike again for " + S.Damage(S.Number(C.Get(delayedDamage)) + "% damage") + " and " + S.Utility("Expose") + " enemies." + (C.Get(resetOnKill) && C.Get(maxKillResets) != 0 ? " Kills " + S.Utility("reset the cooldown") + (C.Get(maxKillResets) < 0 ? "." : " up to " + S.Utility(C.Get(maxKillResets) + " consecutive " + (C.Get(maxKillResets) == 1 ? "time" : "times")) + ".") : ""); break;
-                case 5: text = "Target the nearest enemy, attacking for " + damage + " for " + S.Utility(S.Number(C.Get(s.Duration)) + " seconds") + ". " + S.Utility("You cannot be hit for the duration."); break;
+                case 5: text = "Target the nearest enemy, attacking for " + damage + " for " + S.Utility(S.Number(C.Get(s.Duration)) + " seconds") + ". " + S.Utility("You cannot be hit for the duration.") + (C.Get(eviscerateAllKillsReset) ? " Kills " + S.Utility("reset the cooldown") + "." : ""); break;
                 default: text = "Fire a wind of blades that attacks enemies for " + damage + ". The final hit " + S.Utility("Exposes") + " enemies."; break;
             }
             return s.AgileText + text;
@@ -379,10 +390,21 @@ namespace Tweaks.Survivors
         private static float MovementSpeed(float original, EntityState state)
         {
             Profile p = ForState(state); CharacterBody body = Body(state);
-            if (p?.ReduceMovementScaling == null || !C.Get(p.ReduceMovementScaling) || !IsMercenary(body)) return original;
-            float baseline = body.baseMoveSpeed + body.levelMoveSpeed * Math.Max(0f, body.level - 1f);
-            if (body.isSprinting) baseline *= body.sprintingSpeedMultiplier;
-            return Math.Max(0f, baseline + (original - baseline) * C.Get(p.MovementScaling) / 100f);
+            if (!IsMercenary(body) || p == null) return original;
+            float speed = original;
+            if (p.ReduceMovementScaling != null && C.Get(p.ReduceMovementScaling))
+            {
+                float baseline = body.baseMoveSpeed + body.levelMoveSpeed * Math.Max(0f, body.level - 1f);
+                if (body.isSprinting) baseline *= body.sprintingSpeedMultiplier;
+                speed = Math.Max(0f, baseline + (original - baseline) * C.Get(p.MovementScaling) / 100f);
+            }
+            if (p.Index == 3 && p.DashDistance != null && state.GetType().Name == "Assaulter2")
+            {
+                float duration = Math.Max(Time.fixedDeltaTime, S.Value(state, "duration", 0.1f));
+                float coefficient = Math.Max(0.001f, S.Value(state, "speedCoefficient", 1f));
+                speed += (C.Get(p.DashDistance) - p.VanillaDashDistance) / (duration * coefficient);
+            }
+            return speed;
         }
         private static IEnumerable<CodeInstruction> MovementSpeedIL(IEnumerable<CodeInstruction> instructions)
         {
@@ -451,10 +473,11 @@ namespace Tweaks.Survivors
             }
             if (cast != null && cast.Slot && cast.Slot.characterBody == body)
             {
-                focusDamage.Remove(damageInfo); focusDamage.Add(damageInfo, cast);
                 if (C.Get(slayer)) damageInfo.damageType.damageType |= DamageType.BonusToLowHealth;
                 p = profiles[4];
             }
+            if (damageInfo.damage > 0f || cast != null)
+                RecordHit(__instance, body, cast, p?.Index == 5 && activeState?.GetType().Name == "Evis");
             ProjectileMarker marker = damageInfo.inflictor ? damageInfo.inflictor.GetComponent<ProjectileMarker>() : null;
             if (marker) p = marker.Profile;
             if (p != null && p.Skill.Falloff != null)
@@ -570,8 +593,14 @@ namespace Tweaks.Survivors
             FocusTracker tracker = focusTrackers.GetValue(body.skillLocator.utility, _ => new FocusTracker());
             return tracker.Current ?? BeginFocusCast(body);
         }
-        private static void BeforeFocusedHit(GameObject attackerObject, out FocusCast __state)
-        { __state = activeFocusHit; activeFocusHit = attackerObject ? CurrentFocusCast(attackerObject.GetComponent<CharacterBody>()) : null; }
+        private static void BeforeFocusedHit(GameObject attackerObject, [HarmonyArgument(1)] HurtBox victimHurtBox, out FocusCast __state)
+        {
+            __state = activeFocusHit;
+            CharacterBody body = attackerObject ? attackerObject.GetComponent<CharacterBody>() : null;
+            activeFocusHit = CurrentFocusCast(body);
+            if (activeFocusHit != null && victimHurtBox)
+                RecordHit(victimHurtBox.healthComponent, body, activeFocusHit, false);
+        }
         private static Exception AfterFocusedHit(FocusCast __state, Exception __exception) { activeFocusHit = __state; return __exception; }
         private static void BeforeOrb(Orb orb)
         {
@@ -583,10 +612,20 @@ namespace Tweaks.Survivors
         { __state = new OrbScope { Previous = activeFocusHit, Orb = activeOrb }; activeOrb = __instance; activeFocusHit = focusOrbs.TryGetValue(__instance, out FocusCast cast) ? cast : null; }
         private static Exception AfterOrbArrival(OrbScope __state, Exception __exception)
         { activeFocusHit = __state.Previous; activeOrb = __state.Orb; return __exception; }
-        private static bool TryResetFocus(CharacterBody body, DamageInfo info, out int resets)
+        private static void RecordHit(HealthComponent victim, CharacterBody body, FocusCast cast, bool eviscerate)
+        {
+            if (!NetworkServer.active || !victim || !body || !victim.body ||
+                !victim.body.teamComponent || !body.teamComponent ||
+                victim.body.teamComponent.teamIndex == body.teamComponent.teamIndex ||
+                !(eviscerate ? C.Get(eviscerateAllKillsReset) : cast != null && C.Get(resetOnKill))) return;
+            RecentHits hits = recentHits.GetValue(victim, _ => new RecentHits());
+            hits.Entries.RemoveAll(hit => !hit.Owner || Time.fixedTime - hit.Time > 1f || hit.Owner == body && hit.Eviscerate == eviscerate);
+            hits.Entries.Add(new RecentHit { Owner = body, Focus = eviscerate ? null : cast, Eviscerate = eviscerate, Time = Time.fixedTime });
+        }
+        private static bool TryResetFocus(CharacterBody body, FocusCast cast, out int resets)
         {
             resets = 0;
-            if (!profiles.ContainsKey(4) || !C.Get(resetOnKill) || !focusDamage.TryGetValue(info, out FocusCast cast) || cast.Granted || cast.Tracker.Current != cast || cast.Slot != body.skillLocator.utility || Selected(body, SkillSlot.Utility)?.Index != 4) return false;
+            if (!profiles.ContainsKey(4) || !C.Get(resetOnKill) || cast == null || cast.Granted || cast.Tracker.Current != cast || cast.Slot != body.skillLocator.utility || Selected(body, SkillSlot.Utility)?.Index != 4) return false;
             int maximum = C.Get(maxKillResets); FocusTracker tracker = cast.Tracker;
             if (maximum >= 0 && tracker.Resets >= maximum) return false;
             cast.Granted = true; tracker.Resets++; tracker.RefundPending = true; resets = tracker.Resets;
@@ -594,19 +633,36 @@ namespace Tweaks.Survivors
         }
         private sealed class KillNotice : MessageBase
         {
-            internal NetworkInstanceId BodyId; internal bool Jump, Focus; internal int Resets;
-            public override void Serialize(NetworkWriter writer) { writer.Write(BodyId); writer.Write(Jump); writer.Write(Focus); writer.Write(Resets); }
-            public override void Deserialize(NetworkReader reader) { BodyId = reader.ReadNetworkId(); Jump = reader.ReadBoolean(); Focus = reader.ReadBoolean(); Resets = reader.ReadInt32(); }
+            internal NetworkInstanceId BodyId; internal bool Jump, Focus, Eviscerate; internal int Resets;
+            public override void Serialize(NetworkWriter writer) { writer.Write(BodyId); writer.Write(Jump); writer.Write(Focus); writer.Write(Eviscerate); writer.Write(Resets); }
+            public override void Deserialize(NetworkReader reader) { BodyId = reader.ReadNetworkId(); Jump = reader.ReadBoolean(); Focus = reader.ReadBoolean(); Eviscerate = reader.ReadBoolean(); Resets = reader.ReadInt32(); }
         }
         private static void OnKill([HarmonyArgument(0)] DamageReport report)
         {
-            if (!NetworkServer.active || !IsMercenary(report.attackerBody)) return;
-            CharacterBody body = report.attackerBody;
-            bool refresh = passiveEnabled.Value && C.Get(killsResetJump), focus = TryResetFocus(body, report.damageInfo, out int resets);
-            if (refresh) RefreshJumps(body);
-            if (!refresh && !focus) return;
+            if (!NetworkServer.active || report == null) return;
+            CharacterBody killer = report.attackerBody;
+            if (IsMercenary(killer) && passiveEnabled.Value && C.Get(killsResetJump))
+            {
+                RefreshJumps(killer);
+                SendKillNotice(killer, true, false, false, 0);
+            }
+            if (report.victim == null || !recentHits.TryGetValue(report.victim, out RecentHits hits)) return;
+            recentHits.Remove(report.victim);
+            foreach (RecentHit hit in hits.Entries)
+            {
+                CharacterBody body = hit.Owner;
+                if (!IsMercenary(body) || Time.fixedTime - hit.Time > 1f) continue;
+                int resets = 0;
+                bool focus = !hit.Eviscerate && TryResetFocus(body, hit.Focus, out resets);
+                bool eviscerate = hit.Eviscerate && profiles.ContainsKey(5) && C.Get(eviscerateAllKillsReset) && Selected(body, SkillSlot.Special)?.Index == 5;
+                if (eviscerate) body.skillLocator.special.Reset();
+                if (focus || eviscerate) SendKillNotice(body, false, focus, eviscerate, resets);
+            }
+        }
+        private static void SendKillNotice(CharacterBody body, bool jump, bool focus, bool eviscerate, int resets)
+        {
             NetworkIdentity identity = body.GetComponent<NetworkIdentity>();
-            if (identity) NetworkServer.SendToAll(KillMessageId, new KillNotice { BodyId = identity.netId, Jump = refresh, Focus = focus, Resets = resets });
+            if (identity) NetworkServer.SendToAll(KillMessageId, new KillNotice { BodyId = identity.netId, Jump = jump, Focus = focus, Eviscerate = eviscerate, Resets = resets });
         }
         private static void RegisterClient()
         {
@@ -620,6 +676,7 @@ namespace Tweaks.Survivors
             KillNotice notice = message.ReadMessage<KillNotice>(); GameObject obj = ClientScene.FindLocalObject(notice.BodyId);
             CharacterBody body = obj ? obj.GetComponent<CharacterBody>() : null; if (!IsMercenary(body)) return;
             if (notice.Jump) RefreshJumps(body);
+            if (notice.Eviscerate && Selected(body, SkillSlot.Special)?.Index == 5) body.skillLocator.special.Reset();
             if (notice.Focus && Selected(body, SkillSlot.Utility)?.Index == 4)
             {
                 GenericSkill slot = body.skillLocator.utility; FocusTracker tracker = focusTrackers.GetValue(slot, _ => new FocusTracker());

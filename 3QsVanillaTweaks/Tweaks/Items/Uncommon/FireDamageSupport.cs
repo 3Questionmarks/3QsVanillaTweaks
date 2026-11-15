@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
@@ -83,18 +84,8 @@ namespace Tweaks.Items.Uncommon
 
                     foreach (var type in types)
                     {
-                        bool state = typeof(EntityStates.EntityState).IsAssignableFrom(type) && Named(type.FullName);
-                        bool delayed = type == typeof(DelayBlast);
-                        if (!state && !delayed)
-                            continue;
-                        foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                        {
-                            if (method.IsAbstract || method.ContainsGenericParameters || method.GetMethodBody() == null)
-                                continue;
-                            if (!(method.Name == "OnEnter" || method.Name == "FixedUpdate" || method.Name == "Fire" || method.Name.StartsWith("Fire") || delayed && method.Name.IndexOf("Detonate", StringComparison.OrdinalIgnoreCase) >= 0))
-                                continue;
-                            h.Patch(method, prefix: new HarmonyMethod(typeof(FireDamageSupport), nameof(Before)), finalizer: new HarmonyMethod(typeof(FireDamageSupport), nameof(Finish)));
-                        }
+                        if (type != null)
+                            PatchFireType(h, type);
                     }
                 }
 
@@ -102,6 +93,35 @@ namespace Tweaks.Items.Uncommon
                 if (gasoline != null)
                     h.Patch(gasoline, prefix: new HarmonyMethod(typeof(FireDamageSupport), nameof(Before)), finalizer: new HarmonyMethod(typeof(FireDamageSupport), nameof(Finish)));
             };
+        }
+
+        static void PatchFireType(Harmony harmony, Type type)
+        {
+            try
+            {
+                bool delayed = type == typeof(DelayBlast);
+                // Avoid resolving inheritance for unrelated types, including Unity editor importers.
+                if (!delayed && (!Named(type.FullName) || !typeof(EntityStates.EntityState).IsAssignableFrom(type)))
+                    return;
+
+                foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                {
+                    if (method.IsAbstract || method.ContainsGenericParameters)
+                        continue;
+                    if (!(method.Name == "OnEnter" || method.Name == "FixedUpdate" || method.Name.StartsWith("Fire", StringComparison.Ordinal) ||
+                        (delayed && method.Name.IndexOf("Detonate", StringComparison.OrdinalIgnoreCase) >= 0)))
+                        continue;
+                    if (method.GetMethodBody() == null)
+                        continue;
+
+                    harmony.Patch(method, prefix: new HarmonyMethod(typeof(FireDamageSupport), nameof(Before)),
+                        finalizer: new HarmonyMethod(typeof(FireDamageSupport), nameof(Finish)));
+                }
+            }
+            catch (Exception error) when (error is TypeLoadException || error is FileNotFoundException || error is FileLoadException)
+            {
+                ThreeQsVanillaTweaks.Log.Debug("Fire damage: skipped a type with an unavailable dependency: " + error.Message);
+            }
         }
 
         static void Before(object __instance, out int __state)

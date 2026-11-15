@@ -18,23 +18,33 @@ namespace Tweaks.Items.Uncommon
         static UncommonConfig c;
         internal static void Init()
         {
-            c = new UncommonConfig("Kinetic Dampener", "ShieldBooster", false);
+            c = new UncommonConfig("Kinetic Dampener", "ShieldBooster", true);
             c.Pair("Shield (%)", 4, 0, "Maximum health converted into additional shield. Vanilla: 4%, no stacking.");
             c.Pair("Armor", 30, 30, "Armor while shield remains. Vanilla: 30 per stack.");
             c.Pair("Explosion Damage (%)", 100, 0, "Additional base damage when shields break. Vanilla: 100% base damage.");
             c.Pair("Shield Explosion Damage (%)", 100, 10, "Damage as a percentage of maximum shield. Vanilla: 100 +10% per additional stack.");
             c.Pair("Proc Coefficient", 1, 0, "Shield-break blast proc coefficient. Vanilla: 1.");
             c.Pair("Explosion Radius", 12.5f, 0, "Shield-break blast radius. Vanilla: 12.5 metres.");
-            c.Suppress("RoR2.CharacterBody", "RecalculateStats");
+            // Preserve the native shield grant and adjust only the configured delta.
+            // The minimum also covers cases where another stat hook suppresses that grant.
             U.Ensure();
             U.Stats += b =>
             {
-                int n = c.Count(b);
+                int n = b.inventory && c.Item ? b.inventory.GetItemCountEffective(c.Item) : 0;
                 if (n == 0)
                     return;
-                U.Add(b, "maxShield", b.maxHealth * c.Total("Shield (%)", n) / 100);
-                if (b.healthComponent.shield > 0)
-                    U.Add(b, "armor", c.Total("Armor", n));
+                float configuredShield = b.maxHealth * (c.Active ? c.Total("Shield (%)", n) : 4f) / 100f;
+                float nativeShield = b.maxHealth * 0.04f;
+                float newShield = Mathf.Max(configuredShield, b.maxShield + configuredShield - nativeShield);
+                float extraShield = newShield - b.maxShield;
+                if (extraShield != 0f)
+                {
+                    U.Add(b, "maxShield", extraShield);
+                    U.Add(b, "maxBarrier", extraShield);
+                    U.Add(b, "maxHull", extraShield);
+                }
+                if (c.Active && b.healthComponent.shield > 0)
+                    U.Add(b, "armor", c.Total("Armor", n) - 30f * n);
             };
             if (c.Enabled.Value)
                 U.Patch(typeof(HealthComponent), "GetShieldBoosterDamage", typeof(KineticDampener), postfix: nameof(Damage));

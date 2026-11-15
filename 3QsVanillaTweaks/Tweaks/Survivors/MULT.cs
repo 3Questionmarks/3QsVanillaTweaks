@@ -1,4 +1,3 @@
-using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using BepInEx.Configuration;
 using EntityStates;
+using EntityStates.Toolbot;
 using HarmonyLib;
 using RoR2;
 using RoR2.Projectile;
@@ -39,9 +39,11 @@ namespace Tweaks.Survivors
         private static readonly Dictionary<SkillDef, Profile> definitions = new Dictionary<SkillDef, Profile>();
         private static readonly Dictionary<string, ConfigEntry<bool>> switches = new Dictionary<string, ConfigEntry<bool>>();
         private static readonly HashSet<RuntimeMethodHandle> patchedEntries = new HashSet<RuntimeMethodHandle>();
-        private static ConfigEntry<bool> enabled, statsEnabled, rapid, icbm, jump, reload;
+        private static ConfigEntry<bool> enabled, statsEnabled, rapid, icbm, jump, reload, nailgunSpinEnabled;
         private static ConfigEntry<int> scrapSpeed, barrierConversion, bombletDamage, bombletCount, transportArmour, transportSpeed, ramBonus, powerArmour, powerSlow, powerDamage;
         private static ConfigEntry<float> swapTime;
+        private static ConfigEntry<float> nailgunSpinUpTime, nailgunSpinDownDelay, nailgunSpinDownTime;
+        private static ConfigEntry<float> nailgunInitialRate, nailgunFullRate, nailgunInitialSpread, nailgunFullSpread;
         private static CharacterBody prefabBody;
         private static S.Stats stats;
         private static Harmony harmony;
@@ -56,6 +58,12 @@ namespace Tweaks.Survivors
         private sealed class MeleeMarker { internal Profile Profile; internal CharacterBody Body; internal float Damage; internal int Index; }
         private sealed class MeleeScope { internal float Damage, Proc; }
         private static readonly ConditionalWeakTable<OverlapAttack, MeleeMarker> melee = new ConditionalWeakTable<OverlapAttack, MeleeMarker>();
+        private sealed class NailgunSpin
+        {
+            internal float Fraction;
+            internal float ReleasedAt = float.NegativeInfinity;
+        }
+        private static readonly ConditionalWeakTable<EntityStateMachine, NailgunSpin> nailgunSpins = new ConditionalWeakTable<EntityStateMachine, NailgunSpin>();
         private sealed class RocketVolley { internal FireProjectileInfo Info; }
         private sealed class ProjectileMarker : MonoBehaviour
         {
@@ -104,7 +112,8 @@ namespace Tweaks.Survivors
                 {
                     // Bind the changed default first; Stats reuses the existing entry and its vanilla description.
                     S.Float(StatsSection, "Armour", 20f, prefabBody.baseArmor, "Base armour.", -10000f);
-                    stats = new S.Stats(StatsSection, prefabBody); stats.Apply(prefabBody);
+                    stats = new S.Stats(StatsSection, prefabBody,
+                        new Dictionary<string, float> { { "baseAcceleration", 50f } }); stats.Apply(prefabBody);
                     Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBodyAwake));
                 }
                 SkillDef[] defs = prefabBody.GetComponents<GenericSkill>().Where(slot => slot.skillFamily)
@@ -137,7 +146,13 @@ namespace Tweaks.Survivors
                 {
                     Patch(State("BaseNailgunState"), "FireBullet", nameof(BeforeEnter), finalizer: nameof(EndScope));
                     Patch(State("NailgunFinalBurst"), "OnEnter", nameof(BeforeEnter), finalizer: nameof(EndScope));
-                    if (profiles.ContainsKey(0)) PatchSprint(State("FireNailgun"));
+                    if (profiles.ContainsKey(0))
+                    {
+                        PatchSprint(typeof(FireNailgun));
+                        Patch(typeof(FireNailgun), nameof(FireNailgun.OnExit), postfix: nameof(EndNailgunSpin));
+                        harmony.Patch(AccessTools.Method(typeof(FireNailgun), nameof(FireNailgun.FixedUpdate)),
+                            transpiler: new HarmonyMethod(typeof(MULT), nameof(NailgunSpinIL)));
+                    }
                 }
                 if (profiles.ContainsKey(7))
                     for (int i = 0; i < 4; i++)
@@ -189,7 +204,18 @@ namespace Tweaks.Survivors
                     if (!p.Projectile) throw new MissingMemberException("Projectile unavailable for " + Names[i]);
                     p.NativeProc = p.Projectile.GetComponent<ProjectileController>().procCoefficient;
                 }
-                if (i == 0) s.Falloff = C.Bind(s.Section, "Damage Falloff", S.BulletFalloff.Default, "Damage falloff over distance. Vanilla: Default.");
+                if (i == 0)
+                {
+                    s.Falloff = C.Bind(s.Section, "Damage Falloff", S.BulletFalloff.Default, "Damage falloff over distance. Vanilla: Default.");
+                    nailgunSpinEnabled = S.Bool(s.Section, "Spin-Up Enabled", true, false, "Ramp up sustained fire rate and accuracy while holding the trigger.");
+                    nailgunSpinUpTime = S.Float(s.Section, "Spin-Up Time", 5f, 0f, "Seconds of sustained fire to reach full spin.", .01f);
+                    nailgunSpinDownDelay = S.Float(s.Section, "Spin-Down Delay", .5f, 0f, "Seconds after sustained fire ends before spin begins to decay.");
+                    nailgunSpinDownTime = S.Float(s.Section, "Spin-Down Time", 1f, 0f, "Seconds to lose full spin once it begins to decay.", .01f);
+                    nailgunInitialRate = S.Float(s.Section, "Initial Fire Rate (%)", 75f, 100f, "Starting fire rate as a percentage of normal sustained fire rate.", 1f);
+                    nailgunFullRate = S.Float(s.Section, "Full Spin Fire Rate (%)", 150f, 100f, "Fire rate at full spin as a percentage of normal sustained fire rate.", 1f);
+                    nailgunInitialSpread = S.Float(s.Section, "Initial Spread (%)", 125f, 100f, "Starting spread as a percentage of normal sustained-fire spread.");
+                    nailgunFullSpread = S.Float(s.Section, "Full Spin Spread (%)", 50f, 100f, "Spread at full spin as a percentage of normal sustained-fire spread.");
+                }
                 s.BindDamage(p.NativeDamage * 100f, i == 1 ? 700f : i == 2 ? 400f : (float?)null, p.NativeProc, i == 3);
                 if (i == 3) s.Interval = S.Float(s.Section, "Damage Interval", 1f / frequency, 1f / frequency, "Seconds between damage ticks before attack speed is applied.", 0.001f);
             }
@@ -281,7 +307,11 @@ namespace Tweaks.Survivors
             string text;
             switch (p.Index)
             {
-                case 0: text = "Rapidly fire nails for " + d + ". Releasing the button fires a final burst."; break;
+                case 0:
+                    text = "Rapidly fire nails for " + d + ". " +
+                        (C.Get(nailgunSpinEnabled) ? "Hold to increase fire rate and tighten spread over " + S.Utility(S.Number(C.Get(nailgunSpinUpTime)) + "s") + ". " : "") +
+                        "Releasing the button fires a final burst.";
+                    break;
                 case 1: text = "Fire a piercing rebar for " + d + "."; break;
                 case 2: text = (C.Get(rapid) ? S.Utility("Rapid. ") : "") + "Fire an explosive rocket for " + d + "."; break;
                 case 3: text = "Saw through nearby enemies for " + d + ", gaining " + S.Utility(S.Number(C.Get(barrierConversion)) + "% of damage dealt as barrier") + "."; break;
@@ -295,6 +325,13 @@ namespace Tweaks.Survivors
         private static string Extra(Profile p)
         {
             var b = new StringBuilder(); Action<string, string> add = (key, value) => b.Append("\n").Append(key).Append(": ").Append(S.Utility(value));
+            if (p.Index == 0 && C.Get(nailgunSpinEnabled))
+            {
+                add("Fire Rate", S.Number(C.Get(nailgunInitialRate)) + "% → " + S.Number(C.Get(nailgunFullRate)) + "% of normal");
+                add("Spread", S.Number(C.Get(nailgunInitialSpread)) + "% → " + S.Number(C.Get(nailgunFullSpread)) + "% of normal");
+                add("Spin-Down Delay", S.Number(C.Get(nailgunSpinDownDelay)) + "s");
+                add("Spin-Down Time", S.Number(C.Get(nailgunSpinDownTime)) + "s");
+            }
             if (p.Skill.ProjectileSpeed != null) add("Projectile Speed", S.Number(C.Get(p.Skill.ProjectileSpeed)) + "m/s");
             if (p.Index == 2) add("Projectile Speed", C.Get(scrapSpeed) + "m/s");
             if (p.Skill.Interval != null) add("Damage Interval", S.Number(C.Get(p.Skill.Interval)) + "s");
@@ -333,10 +370,60 @@ namespace Tweaks.Survivors
                     Damage = p == null ? attack.damage : S.Value(__instance, "damageStat", body.damage) * C.Get(p.Skill.Damage) / 100f });
             }
             if (p == null) return;
+            if (p.Index == 0 && __instance is FireNailgun)
+            {
+                NailgunSpin spin = nailgunSpins.GetOrCreateValue(__instance.outer);
+                float decay = Mathf.Max(0f, Time.fixedTime - spin.ReleasedAt - C.Get(nailgunSpinDownDelay));
+                spin.Fraction = Mathf.Max(0f, spin.Fraction - decay / C.Get(nailgunSpinDownTime));
+            }
             if (p.Index == 4) S.Write(__instance, "projectileBaseSpeed", C.Get(p.Skill.ProjectileSpeed));
             if (p.Index == 6 && __instance.GetType().Name == "ToolbotStanceSwap" && C.Get(reload) && Authority(__instance))
                 foreach (GenericSkill slot in body.GetComponents<GenericSkill>())
                     if (slot.skillFamily && (((ScriptableObject)slot.skillFamily).name == "ToolbotBodyPrimary1" || ((ScriptableObject)slot.skillFamily).name == "ToolbotBodyPrimary2")) { slot.stock = slot.maxStock; slot.rechargeStopwatch = 0f; }
+        }
+        private static void EndNailgunSpin(FireNailgun __instance)
+        {
+            if (__instance.outer && nailgunSpins.TryGetValue(__instance.outer, out NailgunSpin spin))
+                spin.ReleasedAt = Time.fixedTime;
+        }
+        private static float NailgunRefireDelta(float delta, FireNailgun state)
+        {
+            if (!C.Get(nailgunSpinEnabled) || !state.outer || !nailgunSpins.TryGetValue(state.outer, out NailgunSpin spin))
+                return delta;
+            spin.Fraction = Mathf.Clamp01(spin.Fraction + delta / C.Get(nailgunSpinUpTime));
+            return delta * Mathf.Lerp(C.Get(nailgunInitialRate), C.Get(nailgunFullRate), spin.Fraction) / 100f;
+        }
+        private static float NailgunSpread(float angle, FireNailgun state)
+        {
+            if (!C.Get(nailgunSpinEnabled) || !state.outer || !nailgunSpins.TryGetValue(state.outer, out NailgunSpin spin))
+                return angle;
+            return angle * Mathf.Lerp(C.Get(nailgunInitialSpread), C.Get(nailgunFullSpread), spin.Fraction) / 100f;
+        }
+        private static IEnumerable<CodeInstruction> NailgunSpinIL(IEnumerable<CodeInstruction> instructions)
+        {
+            MethodInfo deltaTime = AccessTools.Method(typeof(EntityState), "GetDeltaTime");
+            MethodInfo bloomAngle = AccessTools.PropertyGetter(typeof(CharacterBody), "spreadBloomAngle");
+            MethodInfo rate = AccessTools.Method(typeof(MULT), nameof(NailgunRefireDelta));
+            MethodInfo spread = AccessTools.Method(typeof(MULT), nameof(NailgunSpread));
+            bool patchedRate = false, patchedSpread = false;
+            foreach (CodeInstruction code in instructions)
+            {
+                yield return code;
+                if (code.Calls(deltaTime))
+                {
+                    patchedRate = true;
+                    yield return new CodeInstruction(OpCodes.Ldarg_0);
+                    yield return new CodeInstruction(OpCodes.Call, rate);
+                }
+                else if (code.Calls(bloomAngle))
+                {
+                    patchedSpread = true;
+                    yield return new CodeInstruction(OpCodes.Ldarg_0);
+                    yield return new CodeInstruction(OpCodes.Call, spread);
+                }
+            }
+            if (!patchedRate || !patchedSpread)
+                ThreeQsVanillaTweaks.Log.Warning("MUL-T Auto-Nailgun spin-up could not patch both sustained fire rate and spread.");
         }
         private static void BeforeBullet(BulletAttack __instance)
         {

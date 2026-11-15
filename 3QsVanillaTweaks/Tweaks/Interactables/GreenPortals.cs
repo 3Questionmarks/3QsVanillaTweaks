@@ -25,7 +25,7 @@ namespace Tweaks.Interactables
         {
             enabled = C.BindStartupBool(Section, "Enabled", true, "Enable green portal spawning and destination options. Restart to apply.");
             shrinePortal = C.BindBool(Section, "Always Spawn From Halcyon Shrines", true,
-                "Completing a Halcyon Shrine encounter always opens its green portal, including on stages 4 and 5 or later loops. Requires Seekers of the Storm. Does not open a portal on the initial purchase.");
+                "Completing a Halcyon Shrine encounter guarantees a green portal while False Son is undefeated this run, including on stages 4 and 5 or later loops. Requires Seekers of the Storm.");
             lateMeridian = C.BindBool(Section, "Late Portals Lead To Prime Meridian", true,
                 "Green portals used after stage 3 (on stage 4 or later) lead to Prime Meridian. The full-path option takes priority. Vanilla: alternate destinations depend on the next stage tier.");
             fullPath = C.BindBool(Section, "Require Full Path", false,
@@ -51,6 +51,7 @@ namespace Tweaks.Interactables
             return exit && exit.isColossusPortal;
         }
         private static bool CanForceShrine => Active && C.Get(shrinePortal) && NetworkServer.active && Run.instance &&
+            !Run.instance.GetEventFlag("FalseSonBossComplete") &&
             Tweaks.Stages.StageFeatureSpawnHelper.ExpansionEnabled("RoR2/DLC2/Common/DLC2.asset");
         private static void BeforeShrinePortal(HalcyoniteShrineInteractable __instance)
         {

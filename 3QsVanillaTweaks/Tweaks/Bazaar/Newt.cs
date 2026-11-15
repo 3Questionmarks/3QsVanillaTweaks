@@ -22,8 +22,57 @@ namespace Tweaks.Bazaar
     {
         private const string Section = "Bazaar - 01 Newt";
         private const string HarmonyId = "3Questionmarks.3QsVanillaTweaks.Bazaar.Newt";
+        private const string DialogueColor = "#c6d5ff";
+
+        private static readonly System.Random dialogueRandom = new System.Random();
+        private static readonly string[] arrivalLines =
+        {
+            "New shapes. Good good. Come closer.",
+            "Between times now. Look around. Look look.",
+            "You found the blue. Good. See what grows here.",
+            "Come in, come in. Blue moon has things for you."
+        };
+        private static readonly string[] departureLines =
+        {
+            "Go go. See what shape comes next.",
+            "Time takes you again. Good good.",
+            "Back through. Bring me a strange shape next time.",
+            "Away now. Door remembers your shape."
+        };
+        private static readonly string[] unlockLines =
+        {
+            "Yes yes. That will grow both ways. Both ways.",
+            "More growth. Good good good.",
+            "Good growth. Will grow both ways. Both!",
+            "Little moon. Big growth. Good good.",
+            "Was shut. Now open. See how it grows."
+        };
+        private static readonly string[] lunarPurchaseLines =
+        {
+            "That went badly. Badly last shape. But try again.",
+            "Good choice. Good good.",
+            "Shape is louder. Loud.",
+            "Strange choice. Strange shape.",
+            "Your shape narrow. Will be back soon.",
+            "Will remember this shape.",
+            "More shaped. Shaped like Nomad.",
+            "Shaped like Providence. Shape?",
+            "Small moon. Heavy shape. Hold it close.",
+            "Fits your shape. For now. For now.",
+            "Grows on you. See what grows."
+        };
+        private static readonly string[] defeatLines =
+        {
+            "Again again. Everytime.",
+            "Reshape. Out of forever.",
+            "Bad bad. Do not bother.",
+            "Bad. Will reshape into forget.",
+            "Will narrow your shape. Bad.",
+            "Stop stop. Bad bad."
+        };
 
         private static ConfigEntry<bool> enabled;
+        private static ConfigEntry<bool> enableDialogue;
         private static ConfigEntry<bool> preventKick;
         private static ConfigEntry<float> health;
         private static ConfigEntry<float> healthPerLevel;
@@ -36,6 +85,7 @@ namespace Tweaks.Bazaar
         private static bool karmaAwardedThisVisit;
         private static bool grantingKarma;
         private static bool loggedMissingTrigger;
+        private static Stage defeatedStage;
         // Karma types are resolved at runtime: some project RoR2 references predate the karma system.
         private static Type karmaManagerType;
         private static Type karmaTriggerType;
@@ -57,6 +107,8 @@ namespace Tweaks.Bazaar
         internal static void Init()
         {
             enabled = ModConfig.BindBool(Section, "Enabled", true, "Enable Newt Tweaks.");
+            enableDialogue = ModConfig.BindBool(Section, "Enable Newt Dialogue", true,
+                "Let Newt speak in chat on arrival, purchases, unlocks, defeat, and portal departures. Vanilla: off.");
             preventKick = ModConfig.BindBool(Section, "Newt Never Kicks Players Out", true,
                 "Prevents Newt from expelling players after taking damage.");
             karmaOnKill = ModConfig.BindBool(Section, "Award Bazaar Karma When Newt Dies", true,
@@ -74,9 +126,13 @@ namespace Tweaks.Bazaar
                 "Newt only regenerates after this many seconds without taking damage. Further hits reset the delay. Default: 3. Set to 0 for immediate regeneration.");
             armor = ModConfig.Bind(Section, "Armor", 0f,
                 "Newt's base armour. Default: 0. Vanilla: 100.");
+            Stage.onStageStartGlobal += OnStageStart;
 
             var hookTimer = System.Diagnostics.Stopwatch.StartNew();
             harmony = new Harmony(HarmonyId);
+            harmony.Patch(AccessTools.Method(typeof(SceneExitController), nameof(SceneExitController.Begin)),
+                prefix: new HarmonyMethod(typeof(Newt), nameof(BeforePortalBegin)),
+                postfix: new HarmonyMethod(typeof(Newt), nameof(AfterPortalBegin)));
             MethodInfo recalc = AccessTools.Method(typeof(CharacterBody), "RecalculateStats");
             if (recalc == null)
                 throw new MissingMethodException("CharacterBody.RecalculateStats");
@@ -140,6 +196,83 @@ namespace Tweaks.Bazaar
             return name != null && name.StartsWith("ShopkeeperBody", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool DialogueEnabled => NetworkServer.active && enabled != null &&
+            ModConfig.Get(enabled) && ModConfig.Get(enableDialogue) && BazaarSpawnHelper.InBazaar();
+
+        private static bool CanSpeak => DialogueEnabled && Stage.instance && defeatedStage != Stage.instance;
+
+        private static void BeforePortalBegin(SceneExitController __instance, out bool __state)
+        {
+            __state = CanSpeak && !SceneExitController.isRunning && __instance.GetComponentInParent<GenericInteraction>();
+        }
+
+        private static void AfterPortalBegin(bool __state)
+        {
+            if (__state && SceneExitController.isRunning) Speak(departureLines);
+        }
+
+        private static void OnStageStart(Stage stage)
+        {
+            if (stage && DialogueEnabled) stage.StartCoroutine(GreetOnArrival(stage));
+        }
+
+        private static IEnumerator GreetOnArrival(Stage stage)
+        {
+            var wait = new WaitForSecondsRealtime(0.25f);
+            var scene = stage.gameObject.scene;
+            while (stage && Stage.instance == stage && CanSpeak)
+            {
+                bool newtReady = false;
+                bool playerReady = false;
+                foreach (var body in CharacterBody.readOnlyInstancesList)
+                {
+                    if (!body || body.gameObject.scene != scene || !body.healthComponent || !body.healthComponent.alive)
+                        continue;
+                    newtReady |= IsNewt(body);
+                    playerReady |= body.isPlayerControlled;
+                }
+
+                if (newtReady && playerReady)
+                {
+                    Speak(arrivalLines);
+                    yield break;
+                }
+
+                yield return wait;
+            }
+        }
+
+        internal static void CommentOnUnlock()
+        {
+            if (CanSpeak) Speak(unlockLines);
+        }
+
+        internal static void CommentOnLunarPurchase(int? purchasesUntilRerollsStop)
+        {
+            if (!NetworkServer.active || !BazaarSpawnHelper.InBazaar()) return;
+            bool speaking = CanSpeak;
+            if (speaking) Speak(lunarPurchaseLines);
+            if (purchasesUntilRerollsStop is int remaining)
+            {
+                string notice = remaining == 0 ? "No more rerolls this visit."
+                    : $"{remaining} lunar purchase{(remaining == 1 ? "" : "s")} remaining before rerolls stop.";
+                Chat.SendBroadcastChat(new Chat.SimpleChatMessage
+                {
+                    baseToken = $"<color={DialogueColor}>{(speaking ? "Newt:" : "[Lunar Shop]")} {notice}</color>"
+                });
+            }
+        }
+
+        private static void Speak(string[] lines)
+        {
+            string line = lines[dialogueRandom.Next(lines.Length)];
+            // Send the formatted line directly so receivers need no custom language token.
+            Chat.SendBroadcastChat(new Chat.SimpleChatMessage
+            {
+                baseToken = $"<color={DialogueColor}><size=120%>Newt: {line}</size></color>"
+            });
+        }
+
         // Set base values before vanilla calculates Newt's level-scaled maximum health.
         private static void BeforeRecalculateStats(CharacterBody __instance)
         {
@@ -182,7 +315,14 @@ namespace Tweaks.Bazaar
             // Newt is effectively defeated at zero health, even if the game's
             // shopkeeper death animation/despawn differs between builds.
             if (__instance.health <= 0f)
+            {
+                if (Stage.instance && BazaarSpawnHelper.InBazaar() && defeatedStage != Stage.instance)
+                {
+                    if (CanSpeak) Speak(defeatLines);
+                    defeatedStage = Stage.instance;
+                }
                 TryAwardKarmaOnDeath();
+            }
         }
 
         private static void BeforeHealthUpdate(HealthComponent __instance, out float __state)

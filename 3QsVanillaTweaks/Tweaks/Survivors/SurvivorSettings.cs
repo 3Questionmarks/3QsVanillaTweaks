@@ -16,6 +16,41 @@ namespace Tweaks.Survivors
     // Shared survivor settings and descriptions.
     internal static class SurvivorSettings
     {
+        private const string AutoSprintGuid = "com.johnedwa.RTAutoSprintEx";
+        private static BepInEx.BaseUnityPlugin autoSprintPlugin;
+        private static ISet<string> autoSprintBlockedStates, autoSprintDelayedStates;
+        private static MethodInfo registerAutoSprintBlock;
+
+        private static void FindAutoSprint()
+        {
+            if (autoSprintPlugin ||
+                !BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue(AutoSprintGuid, out var plugin) ||
+                !plugin.Instance) return;
+            autoSprintPlugin = plugin.Instance;
+            Type type = autoSprintPlugin.GetType();
+            // RTAutoSprintEx reads this switch at startup when it installs its input hook.
+            if (!(AccessTools.Field(type, "RT_enabled")?.GetValue(null) is bool active) || !active) return;
+            autoSprintBlockedStates = AccessTools.Field(type, "stateSprintDisableList")?.GetValue(autoSprintPlugin) as ISet<string>;
+            autoSprintDelayedStates = AccessTools.Field(type, "stateAnimationDelayList")?.GetValue(autoSprintPlugin) as ISet<string>;
+            registerAutoSprintBlock = AccessTools.Method(type, "RT_SprintDisableMessage", new[] { typeof(string) });
+        }
+
+        internal static bool AutoSprintHandles(Type stateType)
+        {
+            if (stateType?.FullName == null) return false;
+            FindAutoSprint();
+            return autoSprintBlockedStates?.Contains(stateType.FullName) == true ||
+                autoSprintDelayedStates?.Contains(stateType.FullName) == true;
+        }
+
+        internal static void RegisterAutoSprintBlock(Type stateType)
+        {
+            if (stateType?.FullName == null) return;
+            FindAutoSprint();
+            if (autoSprintBlockedStates?.Contains(stateType.FullName) != true)
+                registerAutoSprintBlock?.Invoke(autoSprintPlugin, new object[] { stateType.FullName });
+        }
+
         internal static ConfigEntry<bool> TickDescriptions;
         private static readonly Dictionary<string, Func<string>> descriptions = new Dictionary<string, Func<string>>(StringComparer.Ordinal);
         private static readonly Dictionary<string, Func<string>> skillDescriptions = new Dictionary<string, Func<string>>(StringComparer.Ordinal);
@@ -47,6 +82,12 @@ namespace Tweaks.Survivors
             harmony.Patch(AccessTools.Method(typeof(RoR2.UI.TooltipProvider), "SetContent"),
                 postfix: new HarmonyMethod(typeof(SurvivorSettings), nameof(AfterTooltipContent)));
             descriptionHookInstalled = true;
+        }
+        internal static void SetSkillText(SkillDef skill, Func<string> description)
+        {
+            if (!skill || description == null) return;
+            if (!string.IsNullOrEmpty(skill.skillNameToken)) skillDescriptions[skill.skillNameToken] = description;
+            SetText(skill.skillDescriptionToken, description);
         }
         private static bool BeforeDescription(string __0, ref string __result)
         {
@@ -131,9 +172,11 @@ namespace Tweaks.Survivors
             internal readonly string NativeDescriptionToken;
             internal bool Periodic;
             internal readonly Type StateType;
+            internal Type SprintPolicyState;
             internal readonly object Sample;
             internal readonly ConfigEntry<bool> Enabled;
             private readonly string[] nativeKeywords;
+            private readonly bool nativeCancelSprintOnUse, nativeCancelSkillOnSprint;
             internal ConfigEntry<float> Damage, Interval, Proc, Duration, Radius, ProjectileSpeed;
             internal float NativeProjectileSpeed;
             private bool variableProjectileSpeed;
@@ -151,7 +194,14 @@ namespace Tweaks.Survivors
             internal float DamageFactor = 1f;
             internal float AirDurationRatio = 1f;
             internal Skill(string section, SkillDef definition, Type type, ConfigEntry<bool> enabled)
-            { Section = section; Definition = definition; NativeDescriptionToken = definition.skillDescriptionToken; StateType = type; Enabled = enabled; nativeKeywords = (definition.keywordTokens ?? Array.Empty<string>()).Where(token => token != "KEYWORD_AGILE").ToArray(); Sample = EntityStateCatalog.InstantiateState(type); }
+            {
+                Section = section; Definition = definition; NativeDescriptionToken = definition.skillDescriptionToken;
+                StateType = type; Enabled = enabled;
+                nativeCancelSprintOnUse = definition.cancelSprintingOnActivation;
+                nativeCancelSkillOnSprint = definition.canceledFromSprinting;
+                nativeKeywords = (definition.keywordTokens ?? Array.Empty<string>()).Where(token => token != "KEYWORD_AGILE").ToArray();
+                Sample = EntityStateCatalog.InstantiateState(type);
+            }
             internal void Bind(float? changedCooldown = null, int? changedStocks = null, bool? changedAgile = null, bool explosive = false,
                 bool damage = true, bool interval = false, string durationField = null, bool area = false, float nativeProc = 1f, int? nativeConsumeOverride = null, bool? changedCombat = null)
             {
@@ -202,7 +252,7 @@ namespace Tweaks.Survivors
                     StateType.Name == "FirePistol2" || StateType.Name == "FireBarrage" || StateType.Name == "FireShotgun2" ? BulletFalloff.Default : BulletFalloff.None;
                 Falloff = C.Bind(Section, "Damage Falloff", nativeFalloff, "Damage falloff over distance. Vanilla: " + nativeFalloff + ".");
             }
-            internal void BindProjectileSpeed(GameObject prefab, float defaultMultiplier = 1f)
+            internal void BindProjectileSpeed(GameObject prefab, float defaultMultiplier = 1f, float? defaultSpeed = null)
             {
                 float minimum = Value(Sample, "projectileMinSpeed", -1f);
                 float maximum = Value(Sample, "projectileMaxSpeed", -1f);
@@ -222,7 +272,7 @@ namespace Tweaks.Survivors
                 string description = variableProjectileSpeed && minimum != maximum
                     ? "Average launch speed in metres per second. Keeps the usual variation in launch speed."
                     : "Initial projectile speed in metres per second.";
-                ProjectileSpeed = Float(Section, "Projectile Speed (m/s)", native * defaultMultiplier, native, description);
+                ProjectileSpeed = Float(Section, "Projectile Speed (m/s)", defaultSpeed ?? native * defaultMultiplier, native, description);
             }
             internal float LaunchSpeed(float original)
             {
@@ -239,12 +289,14 @@ namespace Tweaks.Survivors
                 Definition.stockToConsume = Stock(C.Get(consumed), max, nativeConsume);
                 Definition.requiredStock = Math.Max(Definition.stockToConsume, Stock(C.Get(required), max, nativeRequired));
                 Definition.baseRechargeInterval = C.Get(cooldown);
-                Definition.cancelSprintingOnActivation = !C.Get(agile);
-                Definition.canceledFromSprinting = !C.Get(agile) && C.Get(cancelSprint);
+                bool autoSprint = AutoSprintManaged;
+                bool isAgile = C.Get(agile);
+                Definition.cancelSprintingOnActivation = autoSprint ? nativeCancelSprintOnUse : !isAgile;
+                Definition.canceledFromSprinting = autoSprint ? nativeCancelSkillOnSprint : !isAgile && C.Get(cancelSprint);
                 Definition.isCombatSkill = C.Get(combat);
                 Definition.beginSkillCooldownOnSkillEnd = C.Get(cooldownAfter);
                 Definition.keywordTokens = nativeKeywords;
-                SetKeyword("KEYWORD_AGILE", C.Get(agile));
+                SetKeyword("KEYWORD_AGILE", autoSprint ? !nativeCancelSprintOnUse && !nativeCancelSkillOnSprint : isAgile);
             }
             internal void SetKeyword(string token, bool enabled)
             {
@@ -253,13 +305,16 @@ namespace Tweaks.Survivors
                 Definition.keywordTokens = (enabled ? tokens.Concat(new[] { token }) : tokens.Where(value => value != token))
                     .Distinct().ToArray();
             }
-            internal string AgileText => C.Get(agile) ? "<style=cIsUtility>Agile.</style> " : "";
+            internal bool AutoSprintManaged => AutoSprintHandles(Definition.activationState.stateType) ||
+                AutoSprintHandles(StateType) || AutoSprintHandles(SprintPolicyState);
+            private bool IsAgile => AutoSprintManaged ? !nativeCancelSprintOnUse && !nativeCancelSkillOnSprint : C.Get(agile);
+            internal string AgileText => IsAgile ? "<style=cIsUtility>Agile.</style> " : "";
         }
 
         internal sealed class Stats
         {
             private readonly Dictionary<string, ConfigEntry<float>> values = new Dictionary<string, ConfigEntry<float>>();
-            internal Stats(string section, CharacterBody body)
+            internal Stats(string section, CharacterBody body, Dictionary<string, float> defaults = null)
             {
                 string[,] fields = { { "Health", "MaxHealth" }, { "Shield", "MaxShield" }, { "Health Regen", "Regen" }, { "Damage", "Damage" },
                     { "Armour", "Armor" }, { "Move Speed", "MoveSpeed" }, { "Attack Speed", "AttackSpeed" }, { "Critical Chance", "Crit" },
@@ -269,7 +324,8 @@ namespace Tweaks.Survivors
                     string field = prefix + fields[i, 1];
                     if (AccessTools.Field(typeof(CharacterBody), field) == null) continue;
                     float v = Value(body, field);
-                    values[field] = Float(section, fields[i, 0] + (prefix == "base" ? "" : " Per Level"), v, v,
+                    float configuredDefault = defaults != null && defaults.TryGetValue(field, out float changed) ? changed : v;
+                    values[field] = Float(section, fields[i, 0] + (prefix == "base" ? "" : " Per Level"), configuredDefault, v,
                         prefix == "base" ? "Base " + fields[i, 0].ToLowerInvariant() + "." : fields[i, 0] + " gained per level.", field.Contains("Armor") ? -10000f : 0f);
                 }
                 if (AccessTools.Field(typeof(CharacterBody), "baseJumpCount") != null)

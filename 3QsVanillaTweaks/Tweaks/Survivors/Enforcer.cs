@@ -537,13 +537,72 @@ namespace Tweaks.Survivors
         {
             if (IsEnforcer(__instance.body) && (__0.damageType & DamageType.FallDamage) != DamageType.Generic) __0.damage *= 1f - Mathf.Clamp01(C.Get(fallResistance) / 100f);
         }
+        internal static float RallyPointRadius(float fallback) =>
+            profiles.TryGetValue(6, out Profile p) ? C.Get(p.Skill.Radius) : fallback;
+
         private static void BeforeBeacon(Component __instance)
         {
             GenericOwnership owner = __instance.GetComponent<GenericOwnership>();
             if (!owner || !owner.ownerObject || !IsEnforcer(owner.ownerObject.GetComponent<CharacterBody>()) || !profiles.TryGetValue(6, out Profile p)) return;
             Write(__instance, "initialBarrierAmount", F(p, "Barrier On Place (%)") / 100f); Write(__instance, "barrierOnKillAmount", F(p, "Barrier On Kill (%)") / 100f);
             HoldoutZoneController zone = __instance.GetComponent<HoldoutZoneController>();
-            if (zone) { zone.baseRadius = C.Get(p.Skill.Radius); zone.baseChargeDuration = C.Get(p.Skill.Duration); }
+            if (!zone) return;
+            float nativeDuration = zone.baseChargeDuration;
+            zone.baseRadius = C.Get(p.Skill.Radius);
+            zone.baseChargeDuration = C.Get(p.Skill.Duration);
+            zone.gameObject.AddComponent<RallyPointAnimation>().Initialize(zone, nativeDuration);
+        }
+
+        private sealed class RallyPointAnimation : MonoBehaviour
+        {
+            private static readonly int Idle = Animator.StringToHash("Base Layer.idle");
+            private static readonly int Deactivate = Animator.StringToHash("Base Layer.Deactivate");
+            private const float TransitionDuration = .25f;
+            private HoldoutZoneController zone;
+            private Animator[] animators;
+
+            internal void Initialize(HoldoutZoneController holdout, float nativeDuration)
+            {
+                zone = holdout;
+                animators = zone.GetComponentsInChildren<Animator>().Where(animator =>
+                    animator.isActiveAndEnabled && animator.runtimeAnimatorController &&
+                    animator.HasState(0, Idle) && animator.HasState(0, Deactivate)).ToArray();
+
+                float retirementTime = animators.SelectMany(animator => animator.runtimeAnimatorController.animationClips)
+                    .Where(clip => clip).Select(clip => clip.length + TransitionDuration).DefaultIfEmpty(0f).Max();
+                foreach (DestroyOnTimer timer in zone.GetComponentsInChildren<DestroyOnTimer>(true))
+                {
+                    if (timer.transform != zone.transform &&
+                        !animators.Any(animator => animator.transform.IsChildOf(timer.transform))) continue;
+                    float nativeTail = timer.duration - nativeDuration;
+                    timer.duration = zone.baseChargeDuration + Mathf.Max(retirementTime, nativeTail);
+                }
+                enabled = animators.Length > 0;
+            }
+
+            private void LateUpdate()
+            {
+                if (!zone) { enabled = false; return; }
+                bool finished = zone.charge >= zone.maxCharge;
+                foreach (Animator animator in animators)
+                {
+                    if (!animator || !animator.isActiveAndEnabled) continue;
+                    AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+                    bool deactivating = state.fullPathHash == Deactivate ||
+                        (animator.IsInTransition(0) && animator.GetNextAnimatorStateInfo(0).fullPathHash == Deactivate);
+                    if (finished)
+                    {
+                        if (!deactivating) animator.CrossFadeInFixedTime(Deactivate, TransitionDuration, 0, 0f);
+                    }
+                    else if (deactivating || (state.fullPathHash == Idle && state.normalizedTime >= 1f))
+                    {
+                        // The native idle state exits after a fixed number of loops.
+                        animator.Play(Idle, 0, deactivating ? 0f : Mathf.Repeat(state.normalizedTime, 1f));
+                        animator.Update(0f);
+                    }
+                }
+                if (finished) enabled = false;
+            }
         }
         private static bool IsTaunt(DamageInfo info) => info != null && info.damageType.damageTypeExtended.ToString().Split(',').Any(s => s.Trim() == "Taunt");
         private static void BeforeTauntDamage(DamageReport __0, out TauntDamageScope __state)

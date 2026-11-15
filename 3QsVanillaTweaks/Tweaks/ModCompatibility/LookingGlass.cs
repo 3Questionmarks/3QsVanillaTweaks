@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
@@ -11,6 +12,11 @@ namespace Tweaks.ModCompatibility
     internal static class LookingGlass
     {
         private static bool warned;
+        private static readonly HashSet<RoR2.ItemIndex> FullDescriptionItems = new HashSet<RoR2.ItemIndex>();
+        internal static void RegisterFullDescription(RoR2.ItemIndex item)
+        {
+            if (item != RoR2.ItemIndex.None) FullDescriptionItems.Add(item);
+        }
         internal static BepInEx.Configuration.ConfigEntry<bool> BindEnabled()
         {
             var entry = global::Config.ConfigManager.BindBool("Mod Compatibility - General", "LookingGlass Enabled", true, "Show item and skill stats that match this mod's changes in LookingGlass.");
@@ -61,31 +67,6 @@ namespace Tweaks.ModCompatibility
         {
             try
             {
-                var equipmentIcon = __instance.GetComponent<RoR2.UI.EquipmentIcon>();
-                if (equipmentIcon)
-                {
-                    object display = AccessTools.Field(
-                        typeof(RoR2.UI.EquipmentIcon), "currentDisplayData")
-                        ?.GetValue(equipmentIcon);
-
-                    var equipment = display == null ? null :
-                        AccessTools.Field(display.GetType(), "equipmentDef")
-                            ?.GetValue(display) as RoR2.EquipmentDef;
-
-                    if (equipment)
-                    {
-                        string pickup = RoR2.Language.GetString(equipment.pickupToken);
-                        string description = RoR2.Language.GetString(equipment.descriptionToken);
-
-                        if (!string.IsNullOrEmpty(pickup) &&
-                            __result != null &&
-                            __result.StartsWith(pickup, StringComparison.Ordinal))
-                        {
-                            __result = description + __result.Substring(pickup.Length);
-                        }
-                    }
-                    return;
-                }
                 var icon = __instance.GetComponent<RoR2.UI.ItemIcon>();
                 if (!icon) return;
                 var item = RoR2.ItemCatalog.GetItemDef(icon.itemIndex);
@@ -103,7 +84,8 @@ namespace Tweaks.ModCompatibility
                         }
                 }
                 int count = (int)(AccessTools.Field(typeof(RoR2.UI.ItemIcon), "itemCount")?.GetValue(icon) ?? 1);
-                if (LookingGlassStatRegistry.TryFormatKnownItem(item.itemIndex, master, count, out string stats))
+                bool formatted = LookingGlassStatRegistry.TryFormatKnownItem(item.itemIndex, master, count, out string stats);
+                if (formatted || FullDescriptionItems.Contains(item.itemIndex))
                 {
                     string description = RoR2.Language.GetString(item.descriptionToken);
                     __result = description + (string.IsNullOrEmpty(stats) ? "" : "\n\n" + stats.TrimStart('\n'));

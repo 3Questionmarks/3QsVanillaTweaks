@@ -19,6 +19,7 @@ namespace Tweaks.Stages.Stage2
         private static ConfigEntry<int> hexesPerPlayer;
         private static readonly HashSet<int> Rewarded = new HashSet<int>();
         private static readonly Dictionary<string, ItemTier> Tiers = new Dictionary<string, ItemTier>();
+        private static readonly Dictionary<string, Func<bool>> AdditionalScenes = new Dictionary<string, Func<bool>>(StringComparer.OrdinalIgnoreCase);
 
         private static Scene pendingScene;
         private static int pendingUpdates = -1;
@@ -109,14 +110,19 @@ namespace Tweaks.Stages.Stage2
             return Run.instance && ModConfig.Get(enabled) && ModConfig.Get(hexes) && SpawnRequirements.ExpansionEnabled("DLC4");
         }
 
-        private static bool IsSkeletonDeath(CharacterDeathBehavior death)
+        internal static void RegisterScene(string scene, Func<bool> enabled) => AdditionalScenes[scene] = enabled;
+
+        private static bool IsSupportedScene(string scene) =>
+            scene == "foggyswamp" || (AdditionalScenes.TryGetValue(scene, out var enabled) && enabled());
+
+        internal static bool IsSkeletonDeath(CharacterDeathBehavior death)
         {
             return death && death.deathState.stateType == typeof(EntityStates.Destructible.AltarSkeletonDeath);
         }
 
         private static bool IsSkeletonObject(GameObject target)
         {
-            if (!target || target.scene.name != "foggyswamp") return false;
+            if (!target || !IsSupportedScene(target.scene.name)) return false;
             foreach (CharacterDeathBehavior death in target.GetComponentsInChildren<CharacterDeathBehavior>(true))
                 if (IsSkeletonDeath(death)) return true;
             return IsSkeletonDeath(target.GetComponentInParent<CharacterDeathBehavior>());
@@ -167,7 +173,7 @@ namespace Tweaks.Stages.Stage2
         private static void ScheduleCheck(Scene scene)
         {
             pendingScene = scene;
-            pendingUpdates = scene.name == "foggyswamp" ? 5 : -1;
+            pendingUpdates = IsSupportedScene(scene.name) ? 5 : -1;
         }
 
         private static void CheckPendingScene()
@@ -200,7 +206,7 @@ namespace Tweaks.Stages.Stage2
         {
             GameObject altar = AccessTools.Property(typeof(EntityStates.EntityState), "gameObject")?.GetValue(__instance, null) as GameObject;
             if (!NetworkServer.active || !Run.instance || !ModConfig.Get(enabled) || !altar ||
-                altar.scene.name != "foggyswamp" || !SpawnRequirements.ExpansionEnabled("DLC4") ||
+                !IsSupportedScene(altar.scene.name) || !SpawnRequirements.ExpansionEnabled("DLC4") ||
                 !Rewarded.Add(altar.GetInstanceID())) return;
             try
             {

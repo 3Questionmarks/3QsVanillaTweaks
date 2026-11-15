@@ -1,28 +1,27 @@
-using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using BepInEx.Configuration;
-using HarmonyLib;
 using RoR2;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Log = ThreeQsVanillaTweaks.Log;
 using ModConfig = Config.ConfigManager;
+using ReflectionTools = ThreeQsVanillaTweaks.ReflectionTools;
+using NewtAltar = Tweaks.Stages.NewtAltar;
 
 namespace Tweaks.DebugStuff
 {
     /// <summary>
-    /// Debug-only Newt Altar location discovery. Unlike SceneObjectToggleGroup-only
-    /// diagnostics, this also finds permanently placed and inactive stage objects.
-    /// Does not change any altar's active state or spawn behaviour.
+    /// Debug-only discovery of altar instances and declared spawn points in the loaded stage.
     /// </summary>
     internal static class NewtAltarLocations
     {
         private const string Section = "Debug";
-        private const string HarmonyId = "3Questionmarks.3QsVanillaTweaks.DebugStuff.NewtAltarLocations";
+        private const string NewtPrefabAddress = "RoR2/Base/NewtStatue/NewtStatue.prefab";
         private static ConfigEntry<bool> logLocations;
         private static ConfigEntry<bool> showMarkers;
         private static ConfigEntry<bool> diagnosticOnly;
-        private static MarkerOverlay overlay;
 
         internal static bool DisableGuaranteesDuringMapping =>
             diagnosticOnly != null && ModConfig.Get(diagnosticOnly);
@@ -30,35 +29,16 @@ namespace Tweaks.DebugStuff
         internal static void Init()
         {
             logLocations = ModConfig.BindBool(Section, "Newt Altar - Log Candidate Positions", true,
-                "Log the locations of all Newt Altars found in the loaded stage, including inactive and permanently placed objects.");
+                "Log Newt Altar positions and rotations throughout the stage, including inactive altars and declared spawn points.");
             showMarkers = ModConfig.BindBool(Section, "Newt Altar - Show Location Markers", true,
-                "Show a lettered marker over every Newt Altar location found in the loaded stage.");
-            diagnosticOnly = ModConfig.BindBool(Section, "Newt Altar - Disable Guarantees During Mapping", false,
+                "Show markers over Newt Altar locations. S markers identify unconfirmed spawn points.");
+            diagnosticOnly = ModConfig.BindBool(Section, "Newt Altar - Disable Guarantees During Mapping", true,
                 "Temporarily disable configured Newt Altar guarantees during mapping.");
 
-            // Stage.Start ensures the scanner exists even on maps without a
-            // SceneObjectToggleGroup containing Newt objects.
-            var stageStart = AccessTools.Method(typeof(Stage), "Start");
-            if (stageStart != null)
-                new Harmony(HarmonyId).Patch(stageStart,
-                    postfix: new HarmonyMethod(typeof(NewtAltarLocations), nameof(AfterStageStart)));
-            else
-                ThreeQsVanillaTweaks.Log.Warning("Newt Altar diagnostics: Stage.Start was not found.");
-
-            ThreeQsVanillaTweaks.Log.Info("Debug: full-scene Newt Altar discovery installed (includes inactive and fixed altars).");
-        }
-
-        private static void AfterStageStart()
-        {
-            if (ModConfig.Get(showMarkers) || ModConfig.Get(logLocations)) EnsureOverlay();
-        }
-
-        private static void EnsureOverlay()
-        {
-            if (overlay != null) return;
             var root = new GameObject("3Qs Newt Altar Diagnostic Scanner");
             UnityEngine.Object.DontDestroyOnLoad(root);
-            overlay = root.AddComponent<MarkerOverlay>();
+            root.AddComponent<MarkerOverlay>();
+            Log.Info("Debug: Newt Altar discovery will scan loaded stages throughout each visit.");
         }
 
         private sealed class MarkerOverlay : MonoBehaviour
@@ -72,71 +52,189 @@ namespace Tweaks.DebugStuff
             private readonly List<Entry> entries = new List<Entry>();
             private readonly HashSet<string> logged = new HashSet<string>(StringComparer.Ordinal);
             private GUIStyle markerStyle;
-            private string currentScene = "";
+            private int? currentSceneHandle;
             private float nextScan;
-            private float stageScanEnd;
+            private float firstScan;
+            private bool addressableSpawnerResolved;
+            private Type addressableSpawnerType;
+            private FieldInfo addressField;
+            private FieldInfo zeroPoseField;
+            private FieldInfo zeroPositionField;
+            private FieldInfo zeroRotationField;
+            private FieldInfo localPoseField;
 
             private void Update()
             {
                 bool show = ModConfig.Get(showMarkers);
                 bool log = ModConfig.Get(logLocations);
-                if (!show && !log)
+                if (!Run.instance || (!show && !log))
+                {
+                    currentSceneHandle = null;
+                    entries.Clear();
+                    return;
+                }
+
+                var sceneInfo = SceneInfo.instance;
+                Scene scene = sceneInfo ? sceneInfo.gameObject.scene : SceneManager.GetActiveScene();
+                if (!scene.IsValid() || !scene.isLoaded)
                 {
                     entries.Clear();
                     return;
                 }
 
-                Scene scene = SceneManager.GetActiveScene();
-                if (!scene.IsValid() || !scene.isLoaded) return;
-                if (currentScene != scene.name)
+                float now = Time.unscaledTime;
+                if (currentSceneHandle != scene.handle)
                 {
-                    currentScene = scene.name;
+                    currentSceneHandle = scene.handle;
                     entries.Clear();
                     logged.Clear();
-                    nextScan = 0f;
-                    stageScanEnd = Time.unscaledTime + 30f;
+                    nextScan = firstScan = now;
                 }
 
-                if (Time.unscaledTime < nextScan || Time.unscaledTime > stageScanEnd) return;
-                nextScan = Time.unscaledTime + 1f;
-                ScanScene(scene, show, log);
+                if (now < nextScan) return;
+                nextScan = now + (now - firstScan < 30f ? 1f : 3f);
+                SceneDef sceneDef = sceneInfo && sceneInfo.sceneDef
+                    ? sceneInfo.sceneDef : SceneCatalog.GetSceneDefFromScene(scene);
+                ScanScene(scene, sceneDef, show, log);
             }
 
-            private void ScanScene(Scene scene, bool show, bool log)
+            private void ScanScene(Scene scene, SceneDef sceneDef, bool show, bool log)
             {
                 try
                 {
-                    // Resources.FindObjectsOfTypeAll includes inactive scene objects.
-                    // Restrict to the active, loaded stage to exclude asset prefabs
-                    // and objects belonging to other loaded scenes.
-                    List<Tweaks.Stages.NewtAltar.AltarCandidate> candidates =
-                        Tweaks.Stages.NewtAltar.GetCandidates(scene);
+                    string stageId = sceneDef ? sceneDef.baseSceneName : scene.name;
+                    if (log && logged.Add("scene"))
+                        Log.Info("Newt Altar DIAGNOSTIC: scanning stage='" + stageId +
+                            "', scene='" + scene.name + "' for altar instances and spawn points.");
+
                     entries.Clear();
-                    foreach (var candidate in candidates)
+                    var instances = new List<Transform>();
+                    foreach (var candidate in NewtAltar.GetCandidates(scene))
                     {
-                        if (show) entries.Add(new Entry { label = candidate.letter, position = candidate.position });
-                        string logKey = candidate.letter + ":" + candidate.hierarchy + ":" + candidate.position.ToString("F2");
-                        if (log && logged.Add(logKey))
+                        Transform altar = candidate.gameObject.transform;
+                        var statue = altar.GetComponentInChildren<PortalStatueBehavior>(true);
+                        bool confirmed = statue && statue.portalType == PortalStatueBehavior.PortalType.Shop;
+                        if (confirmed) instances.Add(altar);
+                        Report(scene, stageId, candidate.letter, altar, candidate.hierarchy,
+                            confirmed ? AltarState(statue) : "named candidate", show, log);
+                    }
+
+                    var roots = scene.GetRootGameObjects();
+                    int renamedAltarIndex = 0;
+                    foreach (GameObject root in roots)
+                    {
+                        foreach (var altar in root.GetComponentsInChildren<PortalStatueBehavior>(true))
                         {
-                            ThreeQsVanillaTweaks.Log.Info(
-                                "Newt Altar DIAGNOSTIC: scene='" + scene.name +
-                                "', marker=" + candidate.letter + ", object='" + candidate.gameObject.name +
-                                "', position=" + candidate.position.ToString("F2") +
-                                ", active=" + candidate.gameObject.activeInHierarchy +
-                                ", hierarchy='" + candidate.hierarchy + "'");
+                            if (!altar || altar.portalType != PortalStatueBehavior.PortalType.Shop) continue;
+                            Transform position = altar.transform;
+                            if (instances.Exists(instance => position.IsChildOf(instance) ||
+                                (instance.position - position.position).sqrMagnitude < 0.0001f))
+                                continue;
+
+                            instances.Add(position);
+                            Report(scene, stageId, "N" + ++renamedAltarIndex, position, Hierarchy(position),
+                                AltarState(altar), show, log);
                         }
+                    }
+
+                    int spawnPointIndex = 0;
+                    var reportedPoints = new HashSet<Transform>();
+                    ResolveAddressableSpawner();
+                    foreach (GameObject root in roots)
+                    {
+                        foreach (var spawner in root.GetComponentsInChildren<PrefabSpawner>(true))
+                        {
+                            if (!spawner || !spawner.prefabToSpawn || spawner.spawnPoints == null) continue;
+                            var altar = spawner.prefabToSpawn.GetComponentInChildren<PortalStatueBehavior>(true);
+                            if (!altar || altar.portalType != PortalStatueBehavior.PortalType.Shop) continue;
+
+                            foreach (Transform point in spawner.spawnPoints)
+                                ReportSpawnPoint(point, "spawn point");
+                        }
+
+                        if (addressField == null) continue;
+                        foreach (Component spawner in root.GetComponentsInChildren(addressableSpawnerType, true))
+                        {
+                            if (!spawner || !string.Equals(addressField.GetValue(spawner) as string,
+                                NewtPrefabAddress, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            // LoP's local zero offsets place the spawned altar exactly at this transform.
+                            bool matchesAltarPose = IsSet(zeroPoseField, spawner) && IsSet(zeroPositionField, spawner) &&
+                                IsSet(zeroRotationField, spawner) && IsSet(localPoseField, spawner);
+                            ReportSpawnPoint(spawner.transform, matchesAltarPose ? "addressable spawn point" : "addressable holder");
+                        }
+                    }
+
+                    void ReportSpawnPoint(Transform point, string kind)
+                    {
+                        if (!point || !reportedPoints.Add(point)) return;
+                        bool hasInstance = instances.Exists(t => (t.position - point.position).sqrMagnitude < 0.01f);
+                        Report(scene, stageId, "S" + ++spawnPointIndex, point, Hierarchy(point), kind,
+                            show && !hasInstance, log);
                     }
                 }
                 catch (Exception ex)
                 {
-                    ThreeQsVanillaTweaks.Log.Warning("Newt Altar full-scene diagnostic failed in '" + scene.name + "': " + ex);
+                    if (log && logged.Add("scan error"))
+                        Log.Warning("Newt Altar full-scene diagnostic failed in '" + scene.name + "': " + ex);
                 }
             }
+
+            private void ResolveAddressableSpawner()
+            {
+                if (addressableSpawnerResolved) return;
+                addressableSpawnerResolved = true;
+                addressableSpawnerType = ReflectionTools.TypeByName("LOP.InstantiateAddressablePrefab");
+                addressField = ReflectionTools.Field(addressableSpawnerType, "address");
+                zeroPoseField = ReflectionTools.Field(addressableSpawnerType, "setPositionAndRotationToZero");
+                zeroPositionField = ReflectionTools.Field(addressableSpawnerType, "setPositionToZero");
+                zeroRotationField = ReflectionTools.Field(addressableSpawnerType, "setRotationToZero");
+                localPoseField = ReflectionTools.Field(addressableSpawnerType, "useLocalPositionAndRotation");
+            }
+
+            private static bool IsSet(FieldInfo field, Component spawner) => field?.GetValue(spawner) is true;
+
+            private static string AltarState(PortalStatueBehavior altar) =>
+                altar.gameObject.activeInHierarchy ? "active altar" : "inactive altar";
+
+            private void Report(Scene scene, string stageId, string label, Transform target, string hierarchy,
+                string kind, bool show, bool log)
+            {
+                if (show) entries.Add(new Entry { label = label, position = target.position });
+                if (!log) return;
+
+                Vector3 position = target.position;
+                string logKey = kind + ":" + hierarchy + ":" + PlayerCoordinates.FormatVector(position, 3);
+                if (!logged.Add(logKey)) return;
+
+                Log.Info("Newt Altar DIAGNOSTIC: scene='" + scene.name + "', stage='" + stageId +
+                    "', marker=" + label + ", type=" + kind + ", object='" + target.name +
+                    "', position=" + FormatVector(position) + ", rotation=" + FormatVector(target.eulerAngles) +
+                    ", forward=" + FormatVector(target.forward) + ", hierarchy='" + hierarchy + "'");
+            }
+
+            private static string Hierarchy(Transform target)
+            {
+                var names = new Stack<string>();
+                for (Transform item = target; item; item = item.parent) names.Push(item.name);
+                return string.Join("/", names);
+            }
+
+            private static string FormatVector(Vector3 vector) => "(" + PlayerCoordinates.FormatVector(vector, 6) + ")";
 
             private void OnGUI()
             {
                 if (!ModConfig.Get(showMarkers) || entries.Count == 0) return;
-                Camera camera = Camera.main;
+                Camera camera = null;
+                var local = LocalUserManager.GetFirstLocalUser();
+                foreach (var rig in CameraRigController.readOnlyInstancesList)
+                {
+                    if (!rig || local == null || rig.localUserViewer != local || !rig.sceneCam) continue;
+                    camera = rig.sceneCam;
+                    break;
+                }
+                if (!camera) camera = Camera.main;
                 if (camera == null) return;
                 if (markerStyle == null)
                 {

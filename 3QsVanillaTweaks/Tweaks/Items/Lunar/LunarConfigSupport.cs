@@ -208,15 +208,25 @@ namespace Tweaks.Items.Lunar
             Func<string> full=()=>Values.Active?description():old;Func<string> shortText=()=>Values.Active&&pickup!=null?pickup():oldPick;
             S.Text(desc,full);S.Text(pick,shortText);S.Text(newDesc,full);S.Text(newPick,shortText);item.descriptionToken=newDesc;item.pickupToken=newPick;
         }
-        internal void ColouredText(string pattern, Func<string> description)
+        internal void ColouredText(string pattern, Func<string> description, bool showWhenDisabled = false)
         {
             Values.B("Highlight Downside", true, "Use the lunar downside colour in the item's descriptions. Independent of balance changes.");
             var item = Values.Item; if (!item) return;
             described = true;
             string desc = item.descriptionToken, pick = item.pickupToken;
             string old = Language.GetString(desc), oldPick = Language.GetString(pick);
-            S.Text(desc, () => { string text = Values.Active ? description() : old; return Values.B("Highlight Downside") ? LunarDescriptionColours.Highlight(text, pattern) : text; });
-            S.Text(pick, () => Values.B("Highlight Downside") ? LunarDescriptionColours.Highlight(oldPick, pattern) : oldPick);
+            string newDesc = "3QS_NATIVE_" + Id.ToUpperInvariant() + "_DESC";
+            string newPick = "3QS_NATIVE_" + Id.ToUpperInvariant() + "_PICKUP";
+            Func<string> full = () =>
+            {
+                string text = Values.Active || showWhenDisabled ? description() : old;
+                return Values.B("Highlight Downside") ? LunarDescriptionColours.Highlight(text, pattern) : text;
+            };
+            Func<string> shortText = () => Values.B("Highlight Downside") ? LunarDescriptionColours.Highlight(oldPick, pattern) : oldPick;
+            S.Text(desc, full); S.Text(pick, shortText);
+            S.Text(newDesc, full); S.Text(newPick, shortText);
+            item.descriptionToken = newDesc;
+            item.pickupToken = newPick;
         }
         internal void PreserveText()
         {

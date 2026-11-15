@@ -73,6 +73,39 @@ namespace Tweaks
                     Utility(N(Setting(typeof(OSP), "cooldown", 5f)) + " seconds") + " from the trigger; healing does not reset it.",
                 Icon = () => RoR2Content.Buffs.SmallArmorBoost ? RoR2Content.Buffs.SmallArmorBoost.iconSprite : null
             });
+            entries.Add("3QSRemoteEmergencyNova", new Entry
+            {
+                Title = icon => "Healing Nova",
+                Description = icon => "Increases movement speed and armour based on Healing Nova charge. Further healing pulses refresh the duration.",
+                Icon = () => RoR2Content.Buffs.Warbanner ? RoR2Content.Buffs.Warbanner.iconSprite : null
+            });
+            entries.Add("3QSRemoteEmergencyNovaRegen", new Entry
+            {
+                Title = icon => "Nova Regeneration",
+                Description = icon => "Regenerates " + Healing(N(Setting(typeof(Tweaks.Others.RemoteOperation.RemoteEmergencyDrone), "novaRegeneration", 5f)) + "% of maximum health per second") +
+                    " after a fully charged Healing Nova.",
+                Icon = () => RoR2Content.Buffs.Warbanner ? RoR2Content.Buffs.Warbanner.iconSprite : null
+            });
+            entries.Add("3QSRemoteEmergencyOverdrive", new Entry
+            {
+                Title = icon => "Overdrive",
+                Description = icon => "Enhances Healing Beams, Siphoning Salvo and Healing Nova. Enhanced skills have distinct icons while Overdrive is active.",
+                Icon = () => RoR2Content.Buffs.Warbanner ? RoR2Content.Buffs.Warbanner.iconSprite : null
+            });
+            entries.Add("3QSRemoteEmergencyOverdriveAlly", new Entry
+            {
+                Title = icon => "Overdrive Support",
+                Description = icon => "Increases attack speed by " + Utility(N(Setting(typeof(Tweaks.Others.RemoteOperation.RemoteEmergencyDrone), "overdriveAttackBuff", 30f)) + "%") +
+                    ", movement speed by " + Utility(N(Setting(typeof(Tweaks.Others.RemoteOperation.RemoteEmergencyDrone), "overdriveSpeedBuff", 30f)) + "%") +
+                    " and reduces incoming damage by " + Utility(N(Setting(typeof(Tweaks.Others.RemoteOperation.RemoteEmergencyDrone), "overdriveDamageReduction", 30f)) + "%") + ".",
+                Icon = () => RoR2Content.Buffs.Warbanner ? RoR2Content.Buffs.Warbanner.iconSprite : null
+            });
+            entries.Add("3QSRemoteLeech", new Entry
+            {
+                Title = icon => "Leech",
+                Description = icon => "Each stack deals periodic damage and restores health to attackers that damage the afflicted target. Additional stacks increase both effects and refresh their durations.",
+                Icon = () => RoR2Content.Buffs.Bleeding ? RoR2Content.Buffs.Bleeding.iconSprite : null
+            });
             // Bubble Shield already has its own dynamic tooltip in Engineer.cs.
             foreach (BuffDef buff in BuffCatalog.buffDefs)
                 if (buff && !buff.iconSprite && entries.TryGetValue(buff.name, out Entry entry)) buff.iconSprite = entry.Icon();

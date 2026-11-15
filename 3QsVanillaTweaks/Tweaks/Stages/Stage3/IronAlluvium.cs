@@ -23,16 +23,22 @@ namespace Tweaks.Stages.Stage3
         {
             if (ModConfig.ModuleEnabled(typeof(Tweaks.ModCompatibility.LookingGlass)))
                 registeredChest = ModConfig.BindBool("Mod Compatibility - Interactables - Register Command Chest", "Enabled", true,
-                    "Use RegisterCommandChest's registered Command Chest prefab for the guaranteed chests in Iron Alluvium and Iron Auroras when installed. Keeps the stage cost and drop settings. Without it, use the existing large-chest fallback.");
+                    "Use RegisterCommandChest's prefab for guaranteed Command Chests in Iron Alluvium, Iron Auroras and Broadcast Perch when installed. Keeps the stage cost and drop settings. Without it, use a large chest.");
             Run.onRunDestroyGlobal += CleanupDropTables;
             Register("ironalluvium", "Iron Alluvium");
             Register("ironalluvium2", "Iron Auroras");
         }
 
-        private static void Register(string scene, string title)
+        private static void Register(string scene, string title) =>
+            RegisterChest("Stages - Stage 3 - " + title + " - Command Chest", scene, title,
+                new Vector3(-69.37f, 63.67f, 68.14f), 0.75f, -0.65f, requiresDlc3: true, exactPose: false);
+
+        internal static void RegisterChest(string section, string scene, string title, Vector3 position,
+            float forwardX, float forwardZ, bool requiresDlc3, bool exactPose)
         {
-            string section = "Stages - Stage 3 - " + title + " - Command Chest";
-            var settings = StageFeatureSpawnHelper.Bind(section, scene, title + " Command Chest", -69.37f, 63.67f, 68.14f, 0.75f, -0.65f);
+            var settings = StageFeatureSpawnHelper.Bind(section, scene, title + " Command Chest",
+                position.x, position.y, position.z, forwardX, forwardZ, snapToGround: !exactPose,
+                alignToGround: !exactPose);
             ConfigEntry<float> multiplier = ModConfig.Bind(section, "Cost Multiplier", 3f,
                 new ConfigDescription("Price compared with a normal large chest.", new AcceptableValueRange<float>(0f, 100f)));
             ConfigEntry<int> count = ModConfig.Bind(section, "Drops With Command", 3,
@@ -45,9 +51,10 @@ namespace Tweaks.Stages.Stage3
                     new ConfigDescription("Relative chance of this rarity. Zero excludes it. Available nonzero weights are normalized; 30/60/10 gives 30% common, 60% uncommon and 10% legendary. All excluded or unavailable means no chest spawns.", new AcceptableValueRange<float>(0f, 1000000f)));
             StageFeatureSpawnHelper.Register(settings, (spawn, rng) =>
             {
-                if (!SpawnRequirements.ExpansionEnabled("DLC3")) return;
+                if (requiresDlc3 && !SpawnRequirements.ExpansionEnabled("DLC3")) return;
                 GameObject largeChest = StageInteractableAssets.Prefab("Chest2");
-                bool useRegistered = ModConfig.Get(registeredChest) && BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(RegistrationPlugin);
+                bool useRegistered = (registeredChest == null ? !requiresDlc3 : ModConfig.Get(registeredChest)) &&
+                    BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(RegistrationPlugin);
                 // Reuse the exact registered prefab; do not clone or register another network asset.
                 GameObject prefab = useRegistered ? StageInteractableAssets.Prefab("CommandChest") : largeChest;
                 PurchaseInteraction referenceCost = largeChest.GetComponent<PurchaseInteraction>();

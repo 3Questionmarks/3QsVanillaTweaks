@@ -1,4 +1,3 @@
-using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -96,7 +95,8 @@ namespace Tweaks.Survivors
                 stateAuthority = AccessTools.Property(typeof(EntityState), "isAuthority");
                 if (statsEnabled.Value)
                 {
-                    stats = new S.Stats("Survivor-Stats - 03 Bandit", prefabBody); stats.Apply(prefabBody);
+                    stats = new S.Stats("Survivor-Stats - 03 Bandit", prefabBody,
+                        new Dictionary<string, float> { { "baseCrit", 5f } }); stats.Apply(prefabBody);
                     Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBodyAwake));
                 }
                 SkillDef[] defs = prefabBody.GetComponents<GenericSkill>().Where(slot => slot.skillFamily)
@@ -198,7 +198,7 @@ namespace Tweaks.Survivors
             {
                 hitBoxSize = S.Int(s.Section, "Hit Box Size (%)", 150, 100, "Size of the attack's hitbox. 100 uses its normal size.", 1);
                 lunge = S.Bool(s.Section, "Lunge", true, false, "Dash forward when using Serrated Dagger.");
-                lungeDistance = S.Float(s.Section, "Lunge Distance", 10f, 0f, "Forward dash distance in metres.");
+                lungeDistance = S.Float(s.Section, "Lunge Distance", 3f, 0f, "Forward dash distance in metres.");
                 lungeDuration = S.Float(s.Section, "Lunge Duration", 0.15f, 0f, "Dash duration in seconds, limited by the attack's duration.", 0.01f);
             }
             if (i == 3)

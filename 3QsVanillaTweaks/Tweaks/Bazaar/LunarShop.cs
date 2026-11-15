@@ -17,7 +17,7 @@ namespace Tweaks.Bazaar
         private const string Section = "Bazaar - 02 Lunar Shop";
         private static ConfigEntry<bool> enabled;
         private static ConfigEntry<bool> replenishPurchased;
-        private static ConfigEntry<int> purchaseLimit;
+        private static ConfigEntry<int> purchaseLimit, budCost, initialRerollCost;
         private static ConfigEntry<string> formula;
         private static ConfigEntry<bool> resetY;
         private static Stage currentStage;
@@ -25,7 +25,7 @@ namespace Tweaks.Bazaar
         private static int purchases;
         private static int y;
         private static int z;
-        private static int nextCost = 1;
+        private static int nextCost;
         private static bool warnedFormula;
 
         internal static void Init()
@@ -35,14 +35,24 @@ namespace Tweaks.Bazaar
                 "Allow rerolls to replenish Lunar Buds that have already been purchased.");
             purchaseLimit = ModConfig.Bind(Section, "Maximum Lunar Purchases Before Disabling Rerolls", 5,
                 "Successful Lunar Bud purchases per Bazaar visit. 0 disables rerolls entirely; -1 allows unlimited purchases before disabling rerolls.");
+            budCost = ModConfig.Bind(Section, "Lunar Bud Lunar Coin Use Cost", 2,
+                new ConfigDescription("Lunar coins to buy an item from the shop. Vanilla: 2.",
+                    new AcceptableValueRange<int>(0, 999)));
+            initialRerollCost = ModConfig.Bind(Section, "Starting Reroll Lunar Coin Use Cost", 1,
+                new ConfigDescription("Lunar coins for the first reroll each Bazaar visit. Vanilla: 1.",
+                    new AcceptableValueRange<int>(0, 999)));
+            ModConfig.UseMigratedValue(budCost, ModConfig.ReadRetiredValue(Section, "Lunar Bud Use Cost", 2));
+            ModConfig.UseMigratedValue(initialRerollCost, ModConfig.ReadRetiredValue(Section, "Starting Reroll Use Cost", 1));
             formula = ModConfig.Bind(Section, "Reroll Price Formula", "x + y",
-                "Formula for the NEXT recycler price, where x is the current price, y is the reroll number (starting at 1), and z is the reroll number within this Bazaar. Operators: +, -, *, /, parentheses.");
+                "Formula for the NEXT recycler price, where x is the current price, y is the reroll number (starting at 1), and z is the reroll number within this Bazaar. Operators: +, -, *, /, parentheses. Example: x * 2 for vanilla.");
             resetY = ModConfig.BindBool(Section, "Reset Y Every Bazaar", true,
-                "If enabled, y resets at every Bazaar. z always resets; x is the current reroll price and resets to 1 for each Bazaar.");
+                "If enabled, y resets at every Bazaar. z always resets; x starts at the configured starting reroll price each Bazaar.");
 
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Bazaar.LunarShop");
             harmony.Patch(AccessTools.Method(typeof(Stage), "Start"),
                 postfix: new HarmonyMethod(typeof(LunarShop), nameof(OnStageStart)));
+            harmony.Patch(AccessTools.Method(typeof(PurchaseInteraction), "Start"),
+                postfix: new HarmonyMethod(typeof(LunarShop), nameof(AfterPurchaseStart)));
             harmony.Patch(AccessTools.Method(typeof(PurchaseInteraction), "OnInteractionBegin", new[] { typeof(Interactor) }),
                 prefix: new HarmonyMethod(typeof(LunarShop), nameof(BeforeInteraction)));
             harmony.Patch(AccessTools.Method(typeof(PurchaseInteraction), "ScaleCost"),
@@ -50,15 +60,13 @@ namespace Tweaks.Bazaar
             harmony.Patch(AccessTools.Method(typeof(ShopTerminalBehavior), "GenerateNewPickupServer", new[] { typeof(bool) }),
                 prefix: new HarmonyMethod(typeof(LunarShop), nameof(BeforeGeneratePickup)),
                 postfix: new HarmonyMethod(typeof(LunarShop), nameof(AfterGeneratePickup)));
-            harmony.Patch(AccessTools.Method(typeof(ShopTerminalBehavior), "DropPickup", new[] { typeof(bool) }),
-                postfix: new HarmonyMethod(typeof(LunarShop), nameof(AfterDropPickup)));
             Log.Info("Bazaar lunar shop tweaks initialized.");
         }
 
         private static bool Active => NetworkServer.active && ModConfig.Get(enabled);
         private static bool IsRecycler(PurchaseInteraction purchase) =>
             purchase != null && purchase.gameObject.name.StartsWith("LunarRecycler", StringComparison.OrdinalIgnoreCase);
-        private static bool IsBud(ShopTerminalBehavior terminal) =>
+        internal static bool IsBud(ShopTerminalBehavior terminal) =>
             terminal != null && terminal.gameObject.name.StartsWith("LunarShop", StringComparison.OrdinalIgnoreCase);
 
         private static void ResetForStage(Stage stage)
@@ -72,7 +80,7 @@ namespace Tweaks.Bazaar
             currentStage = stage;
             purchases = 0;
             z = 0;
-            nextCost = 1;
+            nextCost = ModConfig.Get(initialRerollCost);
             if (ModConfig.Get(resetY)) y = 0;
         }
         private static void OnStageStart(Stage __instance)
@@ -81,6 +89,20 @@ namespace Tweaks.Bazaar
             ResetForStage(__instance);
             ApplyLimit();
         }
+        private static void AfterPurchaseStart(PurchaseInteraction __instance)
+        {
+            if (!NetworkServer.active || !BazaarSpawnHelper.InBazaar()) return;
+            if (IsRecycler(__instance))
+                __instance.Networkcost = ModConfig.Get(initialRerollCost);
+            else if (IsBud(__instance.GetComponent<ShopTerminalBehavior>()))
+            {
+                __instance.Networkcost = ModConfig.Get(budCost);
+#pragma warning disable CS0618
+                __instance.onPurchase.AddListener(_ => OnLunarPurchase());
+#pragma warning restore CS0618
+            }
+        }
+
         private static void ApplyLimit()
         {
             if (!Active) return;
@@ -132,29 +154,26 @@ namespace Tweaks.Bazaar
         }
         private static void AfterGeneratePickup(ShopTerminalBehavior __instance)
         {
-            if (!Active || !ModConfig.Get(replenishPurchased) || !IsBud(__instance)) return;
+            if (!NetworkServer.active || !BazaarSpawnHelper.InBazaar() || !IsBud(__instance)) return;
             PurchaseInteraction purchase = __instance.GetComponent<PurchaseInteraction>();
-            if (purchase != null) purchase.SetAvailable(true);
+            if (!purchase) return;
+            purchase.Networkcost = ModConfig.Get(budCost);
+            if (Active && ModConfig.Get(replenishPurchased)) purchase.SetAvailable(true);
         }
-        private static void AfterDropPickup(ShopTerminalBehavior __instance)
+        private static void OnLunarPurchase()
         {
-            if (!Active || !IsBud(__instance)) return;
-            ResetForStage(Stage.instance);
-            purchases++;
-            ApplyLimit();
-
-            // A non-negative limit is active; -1 means unlimited and suppresses chat notices.
-            int limit = ModConfig.Get(purchaseLimit);
-            if (limit > 0)
+            if (!NetworkServer.active || !BazaarSpawnHelper.InBazaar()) return;
+            int? remaining = null;
+            if (Active)
             {
-                int remaining = Math.Max(0, limit - purchases);
-                string message = remaining == 0
-                    ? "<style=cWorldEvent>[Lunar Shop] Rerolling is now disabled (0 Lunar purchases remaining).</style>"
-                    : "<style=cWorldEvent>[Lunar Shop] " + remaining +
-                      " Lunar purchase" + (remaining == 1 ? "" : "s") +
-                      " remaining before rerolling is disabled.</style>";
-                Chat.SendBroadcastChat(new Chat.SimpleChatMessage { baseToken = message });
+                ResetForStage(Stage.instance);
+                purchases++;
+                ApplyLimit();
+
+                int limit = ModConfig.Get(purchaseLimit);
+                if (limit > 0 && purchases <= limit) remaining = limit - purchases;
             }
+            Newt.CommentOnLunarPurchase(remaining);
         }
 
         // Small arithmetic parser. Never compiles or executes arbitrary C# code from configuration.

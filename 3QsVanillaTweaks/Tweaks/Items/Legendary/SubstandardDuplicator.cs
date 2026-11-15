@@ -26,7 +26,10 @@ namespace Tweaks.Items.Legendary
             c = RareItemSupport.Config("Substandard Duplicator", "Duplicator");
             c.Pair("Additional Temporary Item Duration", 30, 10, "Additional lifetime of temporary items, in seconds. Added to the general temporary-item duration setting. Vanilla: 10 seconds per stack.");
             RareItemSupport.TempDuration(c);
-            c.Text(() => "Temporary items last " + c.V("Additional Temporary Item Duration", "s", "cIsUtility") + " longer.", () => "Temporary items last longer.");
+            c.Text(
+                () => "Picking up an item gives you a temporary copy of itself. Temporary items last "
+                    + c.V("Additional Temporary Item Duration", "s", "cIsUtility") + " longer.",
+                () => "Picking up an item grants a temporary copy. Temporary items last longer.");
         }
     }
 }

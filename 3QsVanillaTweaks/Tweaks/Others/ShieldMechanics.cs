@@ -110,7 +110,9 @@ namespace Tweaks.Others
         internal static float HealingMaximum(float health, float shield, bool includes) => health + (includes ? shield : 0f);
         internal static float RechargeRate(float seconds) => 1f / Math.Max(0.01f, seconds);
         private static float GateSpill(float damage, float shield) => SpillDamage(damage, shield, Active && C.Get(gate), C.Get(limitGate), C.Get(gateLimit));
-        private static bool GateBeforeOSP(bool eligible, HealthComponent health) => eligible && !DisablesOneShotProtection(health.body) && !(Active && C.Get(gate) && health.shield > 0f);
+        // A shield gate can be bypassed by an oversized hit. Keep ordinary OSP available
+        // for that hit; only the explicit Transcendence option disables it.
+        private static bool GateBeforeOSP(bool eligible, HealthComponent health) => eligible && !DisablesOneShotProtection(health.body);
         private static bool ShieldReady(CharacterBody body) => !Active ? body.outOfDanger : (float)dangerTimer.GetValue(body) >= C.Get(delay);
         private static float Rate() => Active ? RechargeRate(C.Get(replenish)) : 0.5f;
         private static float CurseDivisor(float value) => ShieldIsCurseReduced ? value : 1f;

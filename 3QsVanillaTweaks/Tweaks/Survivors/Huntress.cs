@@ -148,7 +148,8 @@ namespace Tweaks.Survivors
             {
                 prefabBody = Addressables.LoadAssetAsync<GameObject>("RoR2/Base/Huntress/HuntressBody.prefab").WaitForCompletion().GetComponent<CharacterBody>();
                 harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Survivors.Huntress");
-                if (statsEnabled.Value) { stats = new S.Stats("Survivor-Stats - 02 Huntress", prefabBody); stats.Apply(prefabBody); }
+                if (statsEnabled.Value) { stats = new S.Stats("Survivor-Stats - 02 Huntress", prefabBody,
+                    new Dictionary<string, float> { { "baseAcceleration", 100f }, { "baseMoveSpeed", 8f } }); stats.Apply(prefabBody); }
                 if (stats != null || momentumEnabled.Value) Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBodyAwake));
                 if (momentumEnabled.Value)
                 {

@@ -14,6 +14,13 @@ namespace Config
     {
         private const short SnapshotMessage = 181;
         private const short RequestMessage = 182;
+        // UNet strings are limited to 64 KiB. The full item/survivor config is much larger.
+        private const int SnapshotChunkSize = 8192;
+        private static int nextSnapshotId;
+        private static int receivingSnapshotId = -1;
+        private static int lastAppliedSnapshotId = -1;
+        private static string[] receivingChunks;
+        private static int receivedChunks;
         internal static ConfigFile File { get; private set; }
         internal static ConfigFile DebugFile { get; private set; }
         internal static ConfigFile SurvivorStatsFile { get; private set; }
@@ -22,6 +29,8 @@ namespace Config
         private static bool regenerateRequested, bindingsReady, initializationFinished;
         private static bool regenerationFailed;
         private static readonly Dictionary<ConfigFile, bool> originalSaveOnSet = new Dictionary<ConfigFile, bool>();
+        private static readonly HashSet<(ConfigFile File, ConfigDefinition Definition)> retiredSettings =
+            new HashSet<(ConfigFile, ConfigDefinition)>();
         private static readonly Dictionary<ConfigFile, HashSet<ConfigDefinition>> originalDefinitions = new Dictionary<ConfigFile, HashSet<ConfigDefinition>>();
         private static readonly HashSet<ConfigFile> dirtyFiles = new HashSet<ConfigFile>();
         private static readonly HashSet<ConfigFile> backedUpFiles = new HashSet<ConfigFile>();
@@ -34,7 +43,7 @@ namespace Config
         private static float nextRequest;
         internal static event Action EffectiveSettingsChanged;
         private static string Id(ConfigDefinition d) { return d.Section + "\n" + d.Key; }
-        private static readonly string[] ModuleNames = { "Items", "Stages", "Interactables", "Bazaar", "Artifacts", "Others", "ModCompatibility", "Survivors" };
+        private static readonly string[] ModuleNames = { "Items", "Stages", "Directors", "Enemies", "Interactables", "Bazaar", "Artifacts", "Others", "RemoteOperation", "ModCompatibility", "Survivors" };
         private static readonly Dictionary<string, ConfigFile> moduleFiles = new Dictionary<string, ConfigFile>(StringComparer.Ordinal);
         private static readonly Dictionary<string, ConfigEntry<bool>> moduleSwitches = new Dictionary<string, ConfigEntry<bool>>(StringComparer.Ordinal);
         private static readonly Dictionary<string, bool> startupModules = new Dictionary<string, bool>(StringComparer.Ordinal);
@@ -84,16 +93,21 @@ namespace Config
                     ThreeQsVanillaTweaks.Log.Warning("Could not prepare config regeneration: " + error.Message);
                 }
             }
+            MigrateCommonCauldronSettings();
+            MigrateRemoteOperationSettings();
             if (SurvivorConfigSections.Migrate(moduleFiles["Survivors"])) dirtyFiles.Add(moduleFiles["Survivors"]);
             useDebugOptions = Register(File.Bind("00 General", "Use Debug Options", false,
                 "Enable the options in the debug config file."));
             AddModule("Survivors", "Survivors", "Enable all survivor changes. Restart to apply.");
             AddModule("Items", "Items", "Enable all item changes. Restart to apply.");
             AddModule("Stages", "Stages", "Enable all stage changes. Restart to apply.");
+            AddModule("Directors", "Directors", "Enable director and interactable spawning changes. Restart to apply.");
+            AddModule("Enemies", "Enemies", "Enable enemy changes. Restart to apply.");
             AddModule("Interactables", "Interactables", "Enable all interactable changes. Restart to apply.");
             AddModule("Bazaar", "Bazaar", "Enable all Bazaar changes. Restart to apply.");
             AddModule("Artifacts", "Artifacts", "Enable artifact changes and added artifacts. Restart to apply.");
             AddModule("Others", "Others", "Enable miscellaneous changes. Restart to apply.");
+            AddModule("RemoteOperation", "Remote Operation Drones", "Enable player-controlled drone mechanics, skills and stat changes. Restart to apply.");
             AddModule("ModCompatibility", "Mod Compatibility", "Enable integrations with other mods. Restart to apply.");
             // Survivor settings are bound by their onLoad callbacks. Tick runs after
             // the complete event invocation, so these bindings are included too.
@@ -174,6 +188,9 @@ namespace Config
                         dirtyFiles.Add(file);
                     }
                 }
+                foreach (var retired in retiredSettings)
+                    if (OrphanedSettings(retired.File).Remove(retired.Definition)) dirtyFiles.Add(retired.File);
+                retiredSettings.Clear();
                 // Write the reset flag last. A failed refresh stays queued for retry.
                 foreach (ConfigFile file in dirtyFiles.Where(f => !ReferenceEquals(f, DebugFile)))
                 { attemptedWrites.Add(file); file.Save(); }
@@ -220,10 +237,14 @@ namespace Config
             if (ns == "Tweaks.Items" || ns.StartsWith("Tweaks.Items.", StringComparison.Ordinal)) module = "Items";
             else if (ns == "Tweaks.Survivors" || ns.StartsWith("Tweaks.Survivors.", StringComparison.Ordinal)) module = "Survivors";
             else if (ns == "Tweaks.Stages" || ns.StartsWith("Tweaks.Stages.", StringComparison.Ordinal)) module = "Stages";
+            else if (ns == "Tweaks.Directors" || ns.StartsWith("Tweaks.Directors.", StringComparison.Ordinal)) module = "Directors";
+            else if (ns == "Tweaks.Enemies" || ns.StartsWith("Tweaks.Enemies.", StringComparison.Ordinal)) module = "Enemies";
             else if (ns == "Tweaks.Interactables" || ns.StartsWith("Tweaks.Interactables.", StringComparison.Ordinal)) module = "Interactables";
             else if (ns == "Tweaks.Bazaar" || ns.StartsWith("Tweaks.Bazaar.", StringComparison.Ordinal)) module = "Bazaar";
             else if (ns == "Tweaks.RoRArtifacts" || ns.StartsWith("Tweaks.RoRArtifacts.", StringComparison.Ordinal)) module = "Artifacts";
             else if (ns == "Tweaks.ModCompatibility" || ns.StartsWith("Tweaks.ModCompatibility.", StringComparison.Ordinal)) module = "ModCompatibility";
+            else if (ns == "Tweaks.Others.RemoteOperation" || ns.StartsWith("Tweaks.Others.RemoteOperation.", StringComparison.Ordinal) ||
+                     type.FullName == "Tweaks.Others.MultiplayerDrones") module = "RemoteOperation";
             else if (ns == "Tweaks.Other" || ns.StartsWith("Tweaks.Other.", StringComparison.Ordinal) ||
                      ns == "Tweaks.Others" || ns.StartsWith("Tweaks.Others.", StringComparison.Ordinal)) module = "Others";
             // Debug modules always bind their options, even when the debug master is off.
@@ -244,10 +265,13 @@ namespace Config
                 case "Survivors": return "Survivors";
                 case "Items": return "Items";
                 case "Stages": return "Stages";
+                case "Directors": return "Directors";
+                case "Enemies": return "Enemies";
                 case "Interactables": case "Shrines": return "Interactables";
                 case "Bazaar": return "Bazaar";
                 case "Artifacts": return "Artifacts";
                 case "Other": case "Others": return "Others";
+                case "Remote Operation": return "RemoteOperation";
                 case "Mod Compatibility": case "ModCompatibility": return "ModCompatibility";
                 default: return null;
             }
@@ -291,6 +315,7 @@ namespace Config
 
         private static string MigratedSection(string section)
         {
+            if (section == Tweaks.Bazaar.CommonCauldron.LegacySection) return Tweaks.Bazaar.CommonCauldron.Section;
             if (section == "Survivors - General") return "Survivors - 00 General";
             foreach (string survivor in new[] { "Commando", "Huntress" })
             {
@@ -304,7 +329,60 @@ namespace Config
             }
             if (section == "Stages - General - Void Seeds") return "Interactables - Void Seeds";
             if (section.StartsWith("Shrines -", StringComparison.Ordinal)) return "Interactables" + section.Substring("Shrines".Length);
+            if (section == "Other - Multiplayer Drones") return "Remote Operation - General";
+            const string oldRemote = "Other - Remote Drones";
+            if (section == oldRemote) return "Remote Operation - Skills";
+            if (section == oldRemote + " - Disconnect") return "Remote Operation - Disconnect";
+            if (section == oldRemote + " - Gunner" || section.StartsWith(oldRemote + " - Gunner -", StringComparison.Ordinal))
+                return "Remote Operation - Gunner Drone" + section.Substring((oldRemote + " - Gunner").Length);
+            if (section == oldRemote + " - Healing" || section.StartsWith(oldRemote + " - Healing -", StringComparison.Ordinal))
+                return "Remote Operation - Healing Drone" + section.Substring((oldRemote + " - Healing").Length);
+            if (section == oldRemote + " - Junk" || section.StartsWith(oldRemote + " - Junk -", StringComparison.Ordinal))
+                return "Remote Operation - Junk Drone" + section.Substring((oldRemote + " - Junk").Length);
             return section;
+        }
+
+        private static void MigrateCommonCauldronSettings()
+        {
+            ConfigFile file = moduleFiles["Bazaar"];
+            var orphaned = OrphanedSettings(file);
+            foreach (var pair in orphaned.ToArray())
+            {
+                if (pair.Key.Section != Tweaks.Bazaar.CommonCauldron.LegacySection) continue;
+                var destination = new ConfigDefinition(Tweaks.Bazaar.CommonCauldron.Section, pair.Key.Key);
+                if (!orphaned.ContainsKey(destination)) orphaned.Add(destination, pair.Value);
+                orphaned.Remove(pair.Key);
+                dirtyFiles.Add(file);
+            }
+        }
+
+        private static void MigrateRemoteOperationSettings()
+        {
+            ConfigFile destination = moduleFiles["RemoteOperation"];
+            foreach (ConfigFile source in new[] { moduleFiles["Others"], File })
+            {
+                try
+                {
+                    var orphaned = OrphanedSettings(source);
+                    foreach (var pair in orphaned.ToArray())
+                    {
+                        string section = MigratedSection(pair.Key.Section);
+                        if (!section.StartsWith("Remote Operation", StringComparison.Ordinal)) continue;
+                        var definition = new ConfigDefinition(section, pair.Key.Key);
+                        var target = OrphanedSettings(destination);
+                        if (!target.ContainsKey(definition) && !destination.ContainsKey(definition))
+                            target.Add(definition, pair.Value);
+                        orphaned.Remove(pair.Key);
+                        dirtyFiles.Add(source);
+                        dirtyFiles.Add(destination);
+                    }
+                }
+                catch (Exception error)
+                {
+                    regenerationFailed = true;
+                    ThreeQsVanillaTweaks.Log.Warning("Could not move remote-operation settings: " + error.Message);
+                }
+            }
         }
 
         private static void MigrateSettings()
@@ -399,6 +477,31 @@ namespace Config
             }
             return definition.Key;
         }
+        internal static void RetireUnboundSectionTree(string section)
+        {
+            ConfigFile file = SettingsFile(section);
+            foreach (var definition in OrphanedSettings(file).Keys)
+                if (definition.Section == section || definition.Section.StartsWith(section + " -", StringComparison.Ordinal))
+                    retiredSettings.Add((file, definition));
+        }
+
+        internal static T ReadRetiredValue<T>(string section, string key, T fallback)
+        {
+            ConfigFile file = SettingsFile(section);
+            var definition = new ConfigDefinition(section, key);
+            retiredSettings.Add((file, definition));
+            if (!OrphanedSettings(file).TryGetValue(definition, out var raw)) return fallback;
+            try { return (T)TomlTypeConverter.ConvertToValue(raw, typeof(T)); }
+            catch (Exception) { return fallback; }
+        }
+
+        internal static void UseMigratedValue<T>(ConfigEntry<T> entry, T previous)
+        {
+            if (!originalDefinitions.TryGetValue(entry.ConfigFile, out var existing) ||
+                existing.Contains(entry.Definition) || EqualityComparer<T>.Default.Equals(entry.Value, previous)) return;
+            entry.Value = previous;
+        }
+
         internal static ConfigEntry<T> Bind<T>(string section, string key, T defaultValue, string description, bool clientSide = false)
         {
             key = DebugKey(section, key); section = DebugSection(section, key);
@@ -485,6 +588,10 @@ namespace Config
             if (!clientMode)
             {
                 if (wasClient || received) { hostValues.Clear(); received = false; NotifyChanged(); }
+                receivingChunks = null;
+                receivingSnapshotId = -1;
+                lastAppliedSnapshotId = -1;
+                receivedChunks = 0;
                 currentClient = null;
             }
             else
@@ -495,6 +602,10 @@ namespace Config
                     currentClient = client;
                     received = false;
                     hostValues.Clear();
+                    receivingChunks = null;
+                    receivingSnapshotId = -1;
+                    lastAppliedSnapshotId = -1;
+                    receivedChunks = 0;
                     client.RegisterHandler(SnapshotMessage, OnSnapshot);
                     nextRequest = 0f;
                 }
@@ -509,11 +620,28 @@ namespace Config
         private static void OnRequest(NetworkMessage message)
         {
             if (NetworkServer.active && message.conn != null)
-                message.conn.Send(SnapshotMessage, new SettingsMessage { payload = Serialize() });
+                SendSnapshot((type, packet) => message.conn.Send(type, packet));
         }
         private static void Broadcast()
         {
-            if (NetworkServer.active) NetworkServer.SendToAll(SnapshotMessage, new SettingsMessage { payload = Serialize() });
+            if (NetworkServer.active) SendSnapshot((type, packet) => NetworkServer.SendToAll(type, packet));
+        }
+        private static void SendSnapshot(Action<short, MessageBase> send)
+        {
+            string contents = Serialize();
+            int count = Math.Max(1, (contents.Length + SnapshotChunkSize - 1) / SnapshotChunkSize);
+            int id = ++nextSnapshotId;
+            for (int i = 0; i < count; ++i)
+            {
+                int start = i * SnapshotChunkSize;
+                send(SnapshotMessage, new SnapshotChunkMessage
+                {
+                    snapshotId = id,
+                    index = i,
+                    count = count,
+                    payload = contents.Substring(start, Math.Min(SnapshotChunkSize, contents.Length - start))
+                });
+            }
         }
         private static string Serialize()
         {
@@ -538,9 +666,29 @@ namespace Config
         private static void OnSnapshot(NetworkMessage message)
         {
             if (NetworkServer.active) return;
-            var snapshot = message.ReadMessage<SettingsMessage>();
+            var chunk = message.ReadMessage<SnapshotChunkMessage>();
+            if (chunk.count < 1 || chunk.count > 4096 || chunk.index < 0 || chunk.index >= chunk.count ||
+                chunk.payload == null || chunk.payload.Length > SnapshotChunkSize) return;
+            if (chunk.snapshotId <= lastAppliedSnapshotId ||
+                receivingSnapshotId >= 0 && chunk.snapshotId < receivingSnapshotId) return;
+            if (chunk.snapshotId != receivingSnapshotId || receivingChunks == null || receivingChunks.Length != chunk.count)
+            {
+                receivingSnapshotId = chunk.snapshotId;
+                receivingChunks = new string[chunk.count];
+                receivedChunks = 0;
+            }
+            if (receivingChunks[chunk.index] == null)
+            {
+                receivingChunks[chunk.index] = chunk.payload;
+                receivedChunks++;
+            }
+            if (receivedChunks != receivingChunks.Length) return;
+            string payload = string.Concat(receivingChunks);
+            receivingChunks = null;
+            receivingSnapshotId = -1;
+            lastAppliedSnapshotId = chunk.snapshotId;
             var incoming = new Dictionary<string, string>();
-            foreach (string line in (snapshot.payload ?? "").Split('\n'))
+            foreach (string line in payload.Split('\n'))
             {
                 if (string.IsNullOrEmpty(line)) continue;
                 string[] pieces = line.Split('|');
@@ -582,6 +730,19 @@ namespace Config
             public string payload;
             public override void Serialize(NetworkWriter writer) { writer.Write(payload ?? ""); }
             public override void Deserialize(NetworkReader reader) { payload = reader.ReadString(); }
+        }
+        private sealed class SnapshotChunkMessage : MessageBase
+        {
+            public int snapshotId, index, count;
+            public string payload;
+            public override void Serialize(NetworkWriter writer)
+            {
+                writer.Write(snapshotId); writer.Write(index); writer.Write(count); writer.Write(payload ?? "");
+            }
+            public override void Deserialize(NetworkReader reader)
+            {
+                snapshotId = reader.ReadInt32(); index = reader.ReadInt32(); count = reader.ReadInt32(); payload = reader.ReadString();
+            }
         }
     }
 }

@@ -358,13 +358,21 @@ namespace Tweaks.Survivors
                     // Scoping is free. BaseFireSnipe pays secondary stocks when a shot is fired.
                     scope.stockToConsume = 0; scope.requiredStock = 1;
                     scope.baseRechargeInterval = source.baseRechargeInterval;
-                    scope.cancelSprintingOnActivation = source.cancelSprintingOnActivation; scope.canceledFromSprinting = source.canceledFromSprinting;
+                    if (!S.AutoSprintHandles(scope.activationState.stateType))
+                    {
+                        scope.cancelSprintingOnActivation = source.cancelSprintingOnActivation;
+                        scope.canceledFromSprinting = source.canceledFromSprinting;
+                    }
                 }
                 else if (p.AttackDefinition && p.AttackDefinition != p.Skill.Definition)
                 {
                     SkillDef source = p.Skill.Definition, target = p.AttackDefinition;
                     // Firing the charged primary must not inherit the special's cooldown or stocks.
-                    target.cancelSprintingOnActivation = source.cancelSprintingOnActivation; target.canceledFromSprinting = source.canceledFromSprinting;
+                    if (!S.AutoSprintHandles(target.activationState.stateType))
+                    {
+                        target.cancelSprintingOnActivation = source.cancelSprintingOnActivation;
+                        target.canceledFromSprinting = source.canceledFromSprinting;
+                    }
                     target.isCombatSkill = source.isCombatSkill;
                     target.keywordTokens = p.Keywords[target].Where(k => k != "KEYWORD_AGILE").Concat(source.keywordTokens.Where(k => k == "KEYWORD_AGILE")).Distinct().ToArray();
                 }

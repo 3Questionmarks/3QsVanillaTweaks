@@ -9,28 +9,35 @@ using HarmonyLib;
 using RoR2;
 using ThreeQsVanillaTweaks;
 using UnityEngine.Networking;
+using UnityEngine.SceneManagement;
 using ModConfig = Config.ConfigManager;
 
 namespace Tweaks.Stages
 {
     internal static class PreviousRunStages
     {
+        private enum HistoryScope { PlaySession, PreviousRun }
+        private const string Section = "Stages - Previous Run";
         private static ConfigEntry<bool> enabled, debug;
+        private static ConfigEntry<HistoryScope> scope;
         private static Run activeRun;
         private static bool loaded;
         private static string historyPath;
         private static readonly HashSet<string> LastVisited = new HashSet<string>(StringComparer.Ordinal);
-        private static readonly HashSet<string> Blocked = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> PreviousRunVisited = new HashSet<string>(StringComparer.Ordinal);
         private static readonly HashSet<string> CurrentVisited = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> SessionVisited = new HashSet<string>(StringComparer.Ordinal);
         private static readonly Dictionary<string, string> Families = new Dictionary<string, string>(StringComparer.Ordinal);
         private static readonly MethodInfo BazaarUnlocked = AccessTools.Method(typeof(BazaarController), "IsUnlockedBeforeLooping");
 
         internal static void Init()
         {
-            enabled = ModConfig.BindBool("Stages - Previous Run", "Avoid Previous Run Stages", true,
-                "Prevent stages visited in the previous hosted run from being randomly selected in this run, unless every eligible choice was visited. Alternate layouts and day/night variants count as the same stage. History survives game restarts and follows the host.");
+            enabled = ModConfig.BindBool(Section, "Avoid Previous Run Stages", true,
+                "Avoid selecting visited stages while an unvisited eligible destination exists. Alternate layouts and day/night variants count as the same stage. History follows the host.");
+            scope = ModConfig.Bind(Section, "History Scope", HistoryScope.PlaySession,
+                "PlaySession avoids stages visited since the host launched the game, including earlier in the current run. PreviousRun avoids stages from the last hosted run and remembers them after a restart.");
             debug = ModConfig.BindBool("Debug - Stage History", "Log Stage History", true,
-                "Log visited stage families, exclusions and fallback choices.");
+                "Log visited stage families, exclusions and fallback choices. Requires Use Debug Options.");
             historyPath = Path.Combine(Path.GetDirectoryName(ModConfig.File.ConfigFilePath),
                 Path.GetFileNameWithoutExtension(ModConfig.File.ConfigFilePath) + ".StageHistory.txt");
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Stages.PreviousRunStages");
@@ -72,8 +79,6 @@ namespace Tweaks.Stages
                 catch (Exception e) { Log.Warning("Could not read stage history: " + e.Message); }
             }
             activeRun = run;
-            Blocked.Clear();
-            Blocked.UnionWith(LastVisited);
             CurrentVisited.Clear();
             Families.Clear();
             // Link loop variants in either direction, then merge the two vanilla alternate layouts.
@@ -84,7 +89,9 @@ namespace Tweaks.Stages
             // Explicit aliases also cover catalogues where a mod removes loop links.
             Union("lakes", "lakesnight");
             Union("village", "villagenight");
-            Trace("previous run families: " + string.Join(", ", Blocked));
+            PreviousRunVisited.Clear();
+            foreach (string stage in LastVisited) PreviousRunVisited.Add(Root(stage));
+            Trace(ModConfig.Get(scope) + " history at run start: " + string.Join(", ", VisitedForSelection));
         }
 
         private static string Root(string name)
@@ -103,20 +110,29 @@ namespace Tweaks.Stages
             else Families[a] = b;
         }
 
+        private static HashSet<string> VisitedForSelection =>
+            ModConfig.Get(scope) == HistoryScope.PlaySession ? SessionVisited : PreviousRunVisited;
+
         private static bool WasVisited(SceneDef scene)
         {
-            return scene && scene.sceneType == SceneType.Stage && Blocked.Contains(Root(scene.baseSceneName));
+            return scene && scene.sceneType == SceneType.Stage && VisitedForSelection.Contains(Root(scene.baseSceneName));
         }
 
         private static void OnStageStart(Stage stage)
         {
             if (!NetworkServer.active || !Run.instance) return;
             BeginRun(Run.instance);
-            SceneDef scene = SceneCatalog.mostRecentSceneDef;
-            if (!scene || scene.sceneType != SceneType.Stage) return;
-            if (!CurrentVisited.Add(Root(scene.baseSceneName))) return;
-            // Record actual visits even while the setting is off. Merely selected stages
-            // and Bazaar previews do not count. The blocked snapshot stays fixed all run.
+            RecordVisit(stage && stage.sceneDef ? stage.sceneDef : SceneCatalog.mostRecentSceneDef);
+        }
+
+        private static void RecordVisit(SceneDef scene)
+        {
+            if (!scene || scene.sceneType != SceneType.Stage || string.IsNullOrEmpty(scene.baseSceneName)) return;
+            string family = Root(scene.baseSceneName);
+            if (!CurrentVisited.Add(family)) return;
+
+            // Retain both histories so changing scope mid-session can use earlier visits.
+            SessionVisited.Add(family);
             LastVisited.Clear();
             LastVisited.UnionWith(CurrentVisited);
             try
@@ -136,7 +152,13 @@ namespace Tweaks.Stages
         {
             if (!NetworkServer.active || !__instance || __0 == null) return true;
             BeginRun(__instance);
-            if (!ModConfig.Get(enabled) || Blocked.Count == 0 || __0.Count == 0) return true;
+            if (!ModConfig.Get(enabled)) return true;
+            // A stage can select its next destination before onStageStartGlobal fires.
+            // Only record a scene that has actually become the active stage.
+            if (ModConfig.Get(scope) == HistoryScope.PlaySession && __instance == Run.instance &&
+                SceneInfo.instance && SceneInfo.instance.gameObject.scene == SceneManager.GetActiveScene())
+                RecordVisit(SceneInfo.instance.sceneDef);
+            if (VisitedForSelection.Count == 0) return true;
             if (__instance.ruleBook.stageOrder != StageOrder.Normal)
             {
                 // The game's random-stage-order branch ignores the supplied weighted pool.
@@ -145,7 +167,7 @@ namespace Tweaks.Stages
                 foreach (SceneDef scene in SceneCatalog.allStageSceneDefs)
                 {
                     if (__instance.nextStageScene && __instance.nextStageScene.baseSceneName == scene.baseSceneName) continue;
-                    if (!scene.hasAnyDestinations || !scene.validForRandomSelection) continue;
+                    if (!scene.hasAnyDestinations || !scene.validForRandomSelection || !__instance.CanPickStage(scene)) continue;
                     if (__instance.stageClearCount == 0 && Array.IndexOf(__instance.blacklistedScenesForFirstScene, scene) >= 0) continue;
                     all.Add(scene);
                 }
@@ -185,7 +207,7 @@ namespace Tweaks.Stages
         {
             if (!NetworkServer.active || !Run.instance || !ModConfig.Get(enabled)) return;
             BeginRun(Run.instance);
-            if (Blocked.Count == 0 || __instance.seerStations == null) return;
+            if (VisitedForSelection.Count == 0 || __instance.seerStations == null) return;
             var used = new HashSet<SceneDef>();
             foreach (SeerStationController station in __instance.seerStations)
             {

@@ -326,6 +326,7 @@ namespace Tweaks.Survivors
                 Patch(typeof(GlobalEventManager), "OnCharacterDeath", postfix: nameof(OnDeath));
                 if (profiles.Count > 0)
                 {
+                    Patch(typeof(SkillDef), "GetCurrentIcon", postfix: nameof(AfterSkillIcon));
                     Patch(typeof(SkillDef), "OnExecute", nameof(BeforePayment), finalizer: nameof(AfterPayment));
                     Patch(typeof(SkillDef), "HasRequiredStockAndDelay", postfix: nameof(AfterRequired));
                     Patch(typeof(SkillDef), "GetRechargeStock", postfix: nameof(AfterRecharge));
@@ -525,6 +526,7 @@ namespace Tweaks.Survivors
         private static void Apply()
         {
             if (!prefabBody) return;
+            if (platingDefinition && addedSkillIcon) platingDefinition.icon = addedSkillIcon;
             if (teleportDefinition && teleportCooldown != null) teleportDefinition.baseRechargeInterval = C.Get(teleportCooldown);
             stats?.Apply(prefabBody); flowerStats?.Apply(flowerPrefab);
             foreach (Profile p in profiles.Values)
@@ -1025,11 +1027,15 @@ namespace Tweaks.Survivors
         }
         // A separate sprite keeps the original skill artwork untouched.
         private static Sprite addedSkillIcon;
+        private static void AfterSkillIcon(SkillDef __instance, ref Sprite __result)
+        {
+            if (__instance == platingDefinition && addedSkillIcon) __result = addedSkillIcon;
+        }
         private static Sprite AdaptivePlatingIcon(Sprite original)
         {
             if (addedSkillIcon) return addedSkillIcon;
             if (!original) return original;
-            try { return addedSkillIcon = BuildAdaptivePlatingIcon(original); }
+            try { return addedSkillIcon = BuildRecolouredIcon(original, "3QSAdaptivePlatingIcon", .79f, true, true); }
             catch (Exception e)
             {
                 ThreeQsVanillaTweaks.Log.Warning("3QSAdaptivePlatingIcon: retaining original icon because conversion failed: " + e.Message);
@@ -1037,53 +1043,68 @@ namespace Tweaks.Survivors
             }
         }
 
-        static Sprite BuildAdaptivePlatingIcon(Sprite original)
+        static Sprite BuildRecolouredIcon(Sprite original, string name, float targetHue, bool recolourAll = false, bool rotate = false)
         {
-            if (original.packed && original.packingRotation != SpritePackingRotation.None)
-                throw new InvalidOperationException("Unsupported rotated sprite atlas entry.");
-            const string name = "3QSAdaptivePlatingIcon";
-            // GPU readback also works for game textures imported without Read/Write.
-            Rect region = original.textureRect;
-            Vector2 offset = original.textureRectOffset;
+            // Read the atlas through the GPU; sprite vertices and UVs also handle tight or rotated packing.
             int width = Mathf.RoundToInt(original.rect.width);
             int height = Mathf.RoundToInt(original.rect.height);
-            int rw = Mathf.RoundToInt(region.width), rh = Mathf.RoundToInt(region.height);
+            int atlasWidth = original.texture.width, atlasHeight = original.texture.height;
             RenderTexture previous = RenderTexture.active;
             RenderTexture temporary = null;
             Texture2D readable = null, texture = null;
             Sprite sprite = null;
             try
             {
-                temporary = RenderTexture.GetTemporary(original.texture.width, original.texture.height,
+                temporary = RenderTexture.GetTemporary(atlasWidth, atlasHeight,
                     0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
                 Graphics.Blit(original.texture, temporary);
                 RenderTexture.active = temporary;
-                readable = new Texture2D(rw, rh, TextureFormat.RGBA32, false, false);
-                readable.ReadPixels(region, 0, 0, false);
+                readable = new Texture2D(atlasWidth, atlasHeight, TextureFormat.RGBA32, false, false);
+                readable.ReadPixels(new Rect(0, 0, atlasWidth, atlasHeight), 0, 0, false);
                 readable.Apply(false, false);
-                Color[] source = readable.GetPixels();
+                Color32[] source = readable.GetPixels32();
                 Color[] pixels = new Color[width * height];
-                int ox = Mathf.RoundToInt(offset.x), oy = Mathf.RoundToInt(offset.y);
-                for (int y = 0; y < rh; y++)
-                for (int x = 0; x < rw; x++)
+                Vector2[] vertices = original.vertices, uv = original.uv;
+                ushort[] triangles = original.triangles;
+                for (int i = 0; i + 2 < triangles.Length; i += 3)
                 {
-                    Color pixel = source[y * rw + x];
-                    Color.RGBToHSV(pixel, out float hue, out float saturation, out float value);
-                    if (pixel.a > 0 && saturation > .2f && value > .12f)
+                    int a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+                    Vector2 p0 = vertices[a] * original.pixelsPerUnit + original.pivot;
+                    Vector2 p1 = vertices[b] * original.pixelsPerUnit + original.pivot;
+                    Vector2 p2 = vertices[c] * original.pixelsPerUnit + original.pivot;
+                    float denominator = (p1.y - p2.y) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.y - p2.y);
+                    if (Mathf.Abs(denominator) < .0001f) continue;
+                    int minX = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(p0.x, Mathf.Min(p1.x, p2.x))));
+                    int maxX = Mathf.Min(width - 1, Mathf.CeilToInt(Mathf.Max(p0.x, Mathf.Max(p1.x, p2.x))));
+                    int minY = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(p0.y, Mathf.Min(p1.y, p2.y))));
+                    int maxY = Mathf.Min(height - 1, Mathf.CeilToInt(Mathf.Max(p0.y, Mathf.Max(p1.y, p2.y))));
+                    for (int y = minY; y <= maxY; y++)
+                    for (int x = minX; x <= maxX; x++)
                     {
-                        if (hue >= .12f && hue <= .40f)
+                        float px = x + .5f, py = y + .5f;
+                        float w0 = ((p1.y - p2.y) * (px - p2.x) + (p2.x - p1.x) * (py - p2.y)) / denominator;
+                        float w1 = ((p2.y - p0.y) * (px - p2.x) + (p0.x - p2.x) * (py - p2.y)) / denominator;
+                        float w2 = 1f - w0 - w1;
+                        if (w0 < -.0001f || w1 < -.0001f || w2 < -.0001f) continue;
+                        Vector2 sample = uv[a] * w0 + uv[b] * w1 + uv[c] * w2;
+                        int sx = Mathf.Clamp(Mathf.FloorToInt(sample.x * atlasWidth), 0, atlasWidth - 1);
+                        int sy = Mathf.Clamp(Mathf.FloorToInt(sample.y * atlasHeight), 0, atlasHeight - 1);
+                        Color pixel = source[sy * atlasWidth + sx];
+                        Color.RGBToHSV(pixel, out float hue, out float saturation, out float value);
+                        if (pixel.a > 0 && saturation > (recolourAll ? .04f : .2f) && value > (recolourAll ? .03f : .12f)
+                            && (recolourAll || hue >= .12f && hue <= .40f))
                         {
-                            hue = .23f;
-                            value = Mathf.Min(1f, value * 1.12f);
+                            hue = targetHue;
+                            if (recolourAll) saturation = Mathf.Max(.5f, saturation);
+                            value = Mathf.Min(1f, value * (recolourAll ? 1.25f : 1.12f));
+                            Color changed = Color.HSVToRGB(hue, saturation, value);
+                            changed.a = pixel.a;
+                            pixel = changed;
                         }
-                        Color changed = Color.HSVToRGB(hue, saturation, value);
-                        changed.a = pixel.a;
-                        pixel = changed;
+                        int dx = rotate ? width - 1 - x : x;
+                        int dy = rotate ? height - 1 - y : y;
+                        pixels[dy * width + dx] = pixel;
                     }
-                    int dx = x + ox, dy = y + oy;
-                    if (dx < 0 || dx >= width || dy < 0 || dy >= height) continue;
-                    dy = height - 1 - dy;
-                    pixels[dy * width + dx] = pixel;
                 }
                 texture = new Texture2D(width, height, TextureFormat.RGBA32, false, false);
                 texture.name = name;
@@ -1092,7 +1113,6 @@ namespace Tweaks.Survivors
                 texture.SetPixels(pixels);
                 texture.Apply(false, true);
                 Vector2 pivot = new Vector2(original.pivot.x / width, original.pivot.y / height);
-                pivot.y = 1f - pivot.y;
                 sprite = Sprite.Create(texture, new Rect(0, 0, width, height), pivot,
                     original.pixelsPerUnit, 0, SpriteMeshType.FullRect);
                 sprite.name = name;

@@ -23,7 +23,7 @@ namespace Tweaks.Bazaar
             "RoR2/Base/DuplicatorMilitary/DuplicatorMilitary.prefab",
             "RoR2/Base/DuplicatorWild/DuplicatorWild.prefab"
         };
-        private static BazaarSpawnHelper.Settings settings;
+        private static BazaarSpawnHelper.Settings settings, second;
         private static ConfigEntry<float>[] weights;
         private static ConfigEntry<bool> spawnWithCommand;
         private static Stage lastStage;
@@ -32,7 +32,10 @@ namespace Tweaks.Bazaar
         {
             string section = "Bazaar - 05 Extra Interactables - 02 3D Printer";
             settings = BazaarSpawnHelper.Bind(section, "02 3D Printer", Paths[0],
-                75f, -69.6f, -24.4f, -30f, -0.9f, 0f, 0.2f);
+                75f, -69.6f, -24.4f, -30f, -0.9f, 0f, 0.2f,
+                exactPose: "-87.21077, -23.8790131, -5.508073, 7.459107, 167.859955, 357.671783");
+            second = BazaarSpawnHelper.BindFormerUnlockOnly("3D Printer 2", Paths[0], -71.13f, -24.06f, -34.69f, -.87f, 0f, .5f,
+                exactPose: "-82.3166962, -23.9417515, -5.25380039, 0, 179.886536, 0");
             spawnWithCommand = ModConfig.BindBool(section, "Spawn With Command", false,
                 "Allow the extra Bazaar printer to spawn while the Artifact of Command is enabled.");
             weights = new ConfigEntry<float>[Tiers.Length];
@@ -52,6 +55,12 @@ namespace Tweaks.Bazaar
         private static void SpawnPrinter()
         {
             if (SpawnRequirements.CommandActive && !ModConfig.Get(spawnWithCommand)) return;
+            Spawn(settings);
+            Spawn(second);
+        }
+
+        private static void Spawn(BazaarSpawnHelper.Settings settings)
+        {
             if (!BazaarSpawnHelper.Roll(settings)) return;
             var eligibleWeights = new float[weights.Length];
             for (int i = 0; i < weights.Length; i++)

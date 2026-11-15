@@ -17,7 +17,8 @@ namespace Tweaks.Bazaar
         internal static void Init()
         {
             settings = BazaarSpawnHelper.Bind("Bazaar - 05 Extra Interactables - 03 Scrapper",
-                "03 Scrapper", "RoR2/Base/Scrapper/Scrapper.prefab", 100.0f, -90.0f, -23.9f, -6.0f, 1.0f, 0.0f, -0.22f);
+                "03 Scrapper", "RoR2/Base/Scrapper/Scrapper.prefab", 100.0f, -90.0f, -23.9f, -6.0f, 1.0f, 0.0f, -0.22f,
+                exactPose: "-90.70811, -25.44257, -11.5818949, 356.89032, 102.661507, 355.3265");
             BazaarSpawnHelper.Register(typeof(Scrapper), "Scrapper", nameof(AfterStageStart));
         }
 

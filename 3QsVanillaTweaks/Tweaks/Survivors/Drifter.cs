@@ -355,7 +355,7 @@ namespace Tweaks.Survivors
                 Stage.onServerStageBegin += OnStageBegin;
                 Run.onRunDestroyGlobal += CleanupStored;
             }
-            if (profiles.ContainsKey(3) || profiles.ContainsKey(5))
+            if (profiles.ContainsKey(1) || profiles.ContainsKey(3) || profiles.ContainsKey(5))
                 Patch(typeof(CharacterBody), "set_isSprinting", nameof(BeforeBagSkillSprint));
             if (profiles.ContainsKey(4) || profiles.ContainsKey(2))
             {
@@ -403,7 +403,7 @@ namespace Tweaks.Survivors
             foreach (Profile p in profiles.Values)
             {
                 p.Skill.ApplyDefinition();
-                if (p.Index == 3 || p.Index == 5)
+                if (p.Index == 1 || p.Index == 3 || p.Index == 5)
                 {
                     p.Skill.Definition.cancelSprintingOnActivation = true;
                     p.Skill.Definition.canceledFromSprinting = false;
@@ -431,7 +431,8 @@ namespace Tweaks.Survivors
         {
             if (state == null) return false;
             Type type = state.GetType();
-            return profiles.ContainsKey(3) && State("AimRepossess")?.IsAssignableFrom(type) == true
+            return profiles.ContainsKey(1) && State("AimMagicBag")?.IsAssignableFrom(type) == true
+                || profiles.ContainsKey(3) && State("AimRepossess")?.IsAssignableFrom(type) == true
                 || profiles.ContainsKey(5) && State("EmptyBag")?.IsAssignableFrom(type) == true;
         }
         private static void BeforeBagSkillSprint(CharacterBody __instance, ref bool value)

@@ -204,7 +204,6 @@ namespace Tweaks.Survivors
                 {
                     SkillDef primary = AllSkills().First(d => d.activationState.stateType == State("ChargeCaptainShotgun"));
                     chargedDef = UnityEngine.Object.Instantiate(primary);
-                    chargedDef.icon = ChargedShotgunIcon(primary.icon);
                     ((ScriptableObject)chargedDef).name = chargedDef.skillName = "3QSChargedShotgun";
                     chargedDef.skillNameToken = "3QS_CAPTAIN_CHARGED_NAME"; chargedDef.skillDescriptionToken = "3QS_CAPTAIN_CHARGED_DESCRIPTION";
                     chargedDef.activationState = new SerializableEntityStateType(typeof(ChargedShotgunState));
@@ -1623,88 +1622,5 @@ namespace Tweaks.Survivors
             return b.ToString();
         }
         private static string BeaconExtra(BeaconOptions option) => "\nRadius: <style=cIsUtility>" + S.Number(C.Get(beaconRadius)) + "m</style>" + (option.Kind == 0 ? "\nBuff Decay: <style=cIsUtility>" + S.Number(C.Get(supportDecay)) + "s</style>" : option.Kind == 2 ? "\nUses: <style=cIsUtility>" + C.Get(resupplyUses) + "</style>" : "");
-        // A separate sprite keeps the original skill artwork untouched.
-        private static Sprite addedSkillIcon;
-        private static Sprite ChargedShotgunIcon(Sprite original)
-        {
-            if (addedSkillIcon) return addedSkillIcon;
-            if (!original) return original;
-            try { return addedSkillIcon = BuildChargedShotgunIcon(original); }
-            catch (Exception e)
-            {
-                ThreeQsVanillaTweaks.Log.Warning("3QSChargedShotgunIcon: retaining original icon because conversion failed: " + e.Message);
-                return original;
-            }
-        }
-
-        static Sprite BuildChargedShotgunIcon(Sprite original)
-        {
-            if (original.packed && original.packingRotation != SpritePackingRotation.None)
-                throw new InvalidOperationException("Unsupported rotated sprite atlas entry.");
-            const string name = "3QSChargedShotgunIcon";
-            // GPU readback also works for game textures imported without Read/Write.
-            Rect region = original.textureRect;
-            Vector2 offset = original.textureRectOffset;
-            int width = Mathf.RoundToInt(original.rect.width);
-            int height = Mathf.RoundToInt(original.rect.height);
-            int rw = Mathf.RoundToInt(region.width), rh = Mathf.RoundToInt(region.height);
-            RenderTexture previous = RenderTexture.active;
-            RenderTexture temporary = null;
-            Texture2D readable = null, texture = null;
-            Sprite sprite = null;
-            try
-            {
-                temporary = RenderTexture.GetTemporary(original.texture.width, original.texture.height,
-                    0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-                Graphics.Blit(original.texture, temporary);
-                RenderTexture.active = temporary;
-                readable = new Texture2D(rw, rh, TextureFormat.RGBA32, false, false);
-                readable.ReadPixels(region, 0, 0, false);
-                readable.Apply(false, false);
-                Color[] source = readable.GetPixels();
-                Color[] pixels = new Color[width * height];
-                int ox = Mathf.RoundToInt(offset.x), oy = Mathf.RoundToInt(offset.y);
-                for (int y = 0; y < rh; y++)
-                for (int x = 0; x < rw; x++)
-                {
-                    Color pixel = source[y * rw + x];
-                    Color.RGBToHSV(pixel, out float hue, out float saturation, out float value);
-                    if (pixel.a > 0 && saturation > .2f && value > .12f)
-                    {
-                        if (hue < .20f || hue > .95f)
-                            hue = Mathf.Lerp(.61f, .51f, Mathf.Clamp01(hue / .20f));
-                        Color changed = Color.HSVToRGB(hue, saturation, value);
-                        changed.a = pixel.a;
-                        pixel = changed;
-                    }
-                    int dx = x + ox, dy = y + oy;
-                    if (dx < 0 || dx >= width || dy < 0 || dy >= height) continue;
-                    pixels[dy * width + dx] = pixel;
-                }
-                texture = new Texture2D(width, height, TextureFormat.RGBA32, false, false);
-                texture.name = name;
-                texture.filterMode = original.texture.filterMode;
-                texture.wrapMode = TextureWrapMode.Clamp;
-                texture.SetPixels(pixels);
-                texture.Apply(false, true);
-                Vector2 pivot = new Vector2(original.pivot.x / width, original.pivot.y / height);
-                sprite = Sprite.Create(texture, new Rect(0, 0, width, height), pivot,
-                    original.pixelsPerUnit, 0, SpriteMeshType.FullRect);
-                sprite.name = name;
-                return sprite;
-            }
-            catch
-            {
-                if (sprite) UnityEngine.Object.Destroy(sprite);
-                if (texture) UnityEngine.Object.Destroy(texture);
-                throw;
-            }
-            finally
-            {
-                RenderTexture.active = previous;
-                if (temporary) RenderTexture.ReleaseTemporary(temporary);
-                if (readable) UnityEngine.Object.Destroy(readable);
-            }
-        }
     }
 }

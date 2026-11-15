@@ -27,8 +27,7 @@ namespace Tweaks.Stages
         {
             if (!NetworkServer.active || !Run.instance || !director ||
                 !ModConfig.Get(settings.Enabled) || !SpawnRequirements.ExpansionEnabled("DLC4")) return;
-            SceneDef scene = SceneCatalog.FindSceneDef(director.gameObject.scene.name);
-            if (!scene || scene.stageOrder != 1 || !SpawnRequirements.SceneAllowed(scene)) return;
+            if (!StageFeatureSpawnHelper.IsStageOneMap(director.gameObject.scene)) return;
             if (!Completed.Add(director.gameObject.scene.handle)) return;
             try
             {
@@ -45,7 +44,10 @@ namespace Tweaks.Stages
                 for (int attempt = 0; attempt < 32; ++attempt)
                 {
                     var rule = new DirectorPlacementRule { placementMode = DirectorPlacementRule.PlacementMode.Random };
-                    if (DirectorCore.instance.TrySpawnObject(new DirectorSpawnRequest(card, rule, rng))) return;
+                    var instance = DirectorCore.instance.TrySpawnObject(new DirectorSpawnRequest(card, rule, rng));
+                    if (!instance) continue;
+                    DebugStuff.InteractablePlacementEditor.Register(instance, settings.Name, settings.Enabled.Definition.Section, alreadySpawned: true);
+                    return;
                 }
                 Log.Warning("Stage 1 Concept Reliquary: no valid director placement found after 32 attempts.");
             }

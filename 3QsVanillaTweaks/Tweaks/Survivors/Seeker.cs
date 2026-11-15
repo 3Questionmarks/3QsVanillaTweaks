@@ -1,4 +1,3 @@
-using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -129,7 +128,8 @@ namespace Tweaks.Survivors
                 prefab = Addressables.LoadAssetAsync<GameObject>("RoR2/DLC2/Seeker/SeekerBody.prefab").WaitForCompletion().GetComponent<CharacterBody>();
                 harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Survivors.Seeker");
                 nativePassiveDescription = Language.GetString(prefab.GetComponent<SkillLocator>().passiveSkill.skillDescriptionToken);
-                if (statsEnabled.Value) stats = new S.Stats(StatsRoot, prefab);
+                if (statsEnabled.Value) stats = new S.Stats(StatsRoot, prefab,
+                    new Dictionary<string, float> { { "baseArmor", 0f }, { "baseMaxHealth", 110f }, { "levelMaxHealth", 33f } });
                 if (passiveEnabled.Value)
                 {
                     maxStacks = C.Bind(Root + " - Tranquility", "Maximum Stacks", 7, new ConfigDescription("Maximum number of Tranquility stacks. Vanilla: 7.", new AcceptableValueRange<int>(1, 255)));
@@ -865,13 +865,7 @@ namespace Tweaks.Survivors
                 case 0: bonus = "Each stack adds " + Damage(F(p, "3rd Hit Bonus Damage Per Tranquility Stack (%)")) + " to the third hit."; break;
                 case 1: bonus = "Each stack restores an additional " + Healing(F(p, "Extra Healing Per Tranquility Stack (%)")) + " of damage dealt as health."; break;
                 case 2: bonus = "Each stack grants " + S.Utility(I(p, "Extra Hits Per Tranquility Stack").ToString()) + " additional hits per spiral and " + Healing(F(p, "Extra Barrier Per Tranquility Stack (%)")) + " additional barrier per hit."; break;
-                case 4:
-                    bonus = "Each stack " +
-                        (F(p, "Extra Barrier Per Tranquility Stack (%)") > 0f
-                            ? "grants " + Healing(F(p, "Extra Barrier Per Tranquility Stack (%)")) + " additional barrier on entering flight and "
-                            : "") +
-                        "extends the cyclone by " + S.Utility(S.Number(F(p, "Cyclone Duration Per Tranquility Stack")) + " seconds") + ".";
-                    break;
+                case 4: bonus = "Each stack grants " + Healing(F(p, "Extra Barrier Per Tranquility Stack (%)")) + " additional barrier on entering flight and extends the cyclone by " + S.Utility(S.Number(F(p, "Cyclone Duration Per Tranquility Stack")) + " seconds") + "."; break;
                 case 5: bonus = "Each stack adds " + Damage(F(p, "Damage Bonus Per Tranquility Stack (%)")) + " and " + Healing(F(p, "Healing Bonus Per Tranquility Stack (%)")) + " healing." +
                     (B(p, "Multiply Radius Per Tranquility Stack") ? " The blast radius is multiplied by your stack count, with a minimum of 1x." : ""); break;
                 case 6: bonus = "Each stack adds " + Damage(F(p, "Damage Bonus Per Tranquility (%)")) + ", " + Healing(F(p, "Healing Bonus Per Tranquility (%)")) + " healing and " + S.Utility(Percent(F(p, "Size Growth Per Tranquility (%)"))) + " blast size."; break;

@@ -28,7 +28,7 @@ namespace Tweaks.Stages
         };
         internal static void Init()
         {
-            enabled = C.BindStartupBool(Section, "Enabled", true, "After Providence's final defeat, add nine sequential Golden Geodes and a gold portal to Gilded Coast. Completing that encounter offers a green portal to Prime Meridian, or the full path if enabled in the Green Portals config. Restart to apply.");
+            enabled = C.BindStartupBool(Section, "Enabled", true, "After Providence's final defeat, add nine sequential Golden Geodes and a gold portal to Gilded Coast. While False Son is undefeated this run, completing the Gilded Coast encounter offers a green portal to Prime Meridian, or the full path if enabled in the Green Portals config. Restart to apply.");
             delay = C.Bind(Section, "First Geode Delay", 30f, new ConfigDescription("Seconds after Providence's defeat before the first geode appears.", new AcceptableValueRange<float>(0f, 3600f)));
             portalHeight = C.Bind(Section, "Portal Height Above Ground", 2f, new ConfigDescription("Gold portal vertical offset above the ground at the ninth geode.", new AcceptableValueRange<float>(0f, 20f)));
             if (!enabled.Value) return;
@@ -105,14 +105,16 @@ namespace Tweaks.Stages
             if (!__state) return;
             routeRun = Run.instance; enteringCoast = true;
         }
-        private static bool SpecialCoast => Active && NetworkServer.active && Run.instance && routeRun == Run.instance && coastStage == Stage.instance && IsScene("goldshores");
+        private static bool CanOpenCoastGreenPortal => Active && NetworkServer.active && Run.instance &&
+            routeRun == Run.instance && coastStage == Stage.instance && IsScene("goldshores") &&
+            !Run.instance.GetEventFlag("FalseSonBossComplete");
         private static void BeforeCoastExit(out HashSet<SceneExitController> __state)
         {
-            __state = SpecialCoast && !coastPortalReady ? new HashSet<SceneExitController>(Object.FindObjectsOfType<SceneExitController>()) : null;
+            __state = CanOpenCoastGreenPortal && !coastPortalReady ? new HashSet<SceneExitController>(Object.FindObjectsOfType<SceneExitController>()) : null;
         }
         private static void AfterCoastExit(EntityStates.Missions.Goldshores.Exit __instance, HashSet<SceneExitController> __state)
         {
-            if (__state == null || !SpecialCoast) return;
+            if (__state == null || !CanOpenCoastGreenPortal) return;
             try
             {
                 var destination = SceneCatalog.FindSceneDef("meridian");

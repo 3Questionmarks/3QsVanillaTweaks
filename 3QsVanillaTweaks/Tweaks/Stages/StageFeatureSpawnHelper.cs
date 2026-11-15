@@ -50,7 +50,8 @@ namespace Tweaks.Stages
         }
 
         internal static Settings Bind(string section, string sceneName, string name,
-            float x, float y, float z, float forwardX = 0f, float forwardZ = 1f, float heightOffset = 0f)
+            float x, float y, float z, float forwardX = 0f, float forwardZ = 1f, float heightOffset = 0f,
+            bool snapToGround = true, bool alignToGround = true)
         {
             return new Settings
             {
@@ -63,8 +64,8 @@ namespace Tweaks.Stages
                 Z = ModConfig.Bind(section, "Position Z", z, "World-space Z position."),
                 ForwardX = ModConfig.Bind(section, "Forward X", forwardX, "Horizontal facing vector X. Terrain alignment supplies the slope rotation."),
                 ForwardZ = ModConfig.Bind(section, "Forward Z", forwardZ, "Horizontal facing vector Z. Both zero uses world forward."),
-                SnapToGround = ModConfig.BindBool(section, "Snap To Ground", true, "Move the feature to the ground nearest the configured height."),
-                AlignToGround = ModConfig.BindBool(section, "Align To Ground", true, "Tilt the feature to match the ground. Disable to keep it upright."),
+                SnapToGround = ModConfig.BindBool(section, "Snap To Ground", snapToGround, "Move the feature to the ground nearest the configured height."),
+                AlignToGround = ModConfig.BindBool(section, "Align To Ground", alignToGround, "Tilt the feature to match the ground. Disable to keep it upright."),
                 HeightOffset = ModConfig.Bind(section, "Height Offset", heightOffset, "World-space vertical offset added after ground snapping (or to Position Y when snapping is disabled)."),
                 GroundSearchDistance = ModConfig.Bind(section, "Ground Search Distance", 12f,
                     new ConfigDescription("Search this far above and below Position Y for ground. The surface closest to Position Y is used to avoid snapping to overhead floors.",
@@ -127,16 +128,12 @@ namespace Tweaks.Stages
             }
         }
 
-        internal static bool IsStageOneMap()
+        internal static bool IsStageOneMap(Scene scene)
         {
-            SceneDef scene = SceneCatalog.mostRecentSceneDef;
-            if (!scene) return false;
-            switch (scene.baseSceneName)
-            {
-                case "blackbeach": case "blackbeach2": case "golemplains": case "golemplains2":
-                case "snowyforest": case "lakes": case "lakesnight": case "village": case "villagenight": return true;
-                default: return false;
-            }
+            SceneDef definition = SceneCatalog.GetSceneDefFromScene(scene);
+            if (!definition) definition = SceneCatalog.FindSceneDef(scene.name);
+            return definition && definition.sceneType == SceneType.Stage && definition.stageOrder == 1 &&
+                SpawnRequirements.SceneAllowed(definition);
         }
 
         internal static bool ExpansionEnabled(ExpansionDef expansion)
@@ -258,6 +255,7 @@ namespace Tweaks.Stages
                 instance = UnityEngine.Object.Instantiate(prefab, position, rotation);
                 instance.name = "3Qs_StageFeature_" + settings.Name;
                 configure?.Invoke(instance);
+                DebugStuff.InteractablePlacementEditor.Register(instance, settings.Name, settings.X.Definition.Section);
                 NetworkServer.Spawn(instance);
                 Log.Info("Stage feature spawned " + settings.Name + " on " + settings.SceneName + " at " + position);
                 return instance;

@@ -20,6 +20,7 @@ namespace Tweaks.Survivors
     internal static class Commando
     {
         private const string Root = "Survivors - 01 Commando";
+        private const string GrenadeMachine = "3QsCommandoGrenade";
         private static readonly string[] Names = { "Double Tap", "Phase Round", "Phase Blast", "Tactical Dive", "Tactical Slide", "Suppressive Fire", "Frag Grenade", "Sabotage" };
         private static readonly string[] States = { "FirePistol2", "FireFMJ", "FireShotgunBlast", "DodgeState", "SlideState", "FireBarrage", "ThrowGrenade", "Sabotage" };
         private static readonly Dictionary<GameObject, S.Skill> projectileSkills = new Dictionary<GameObject, S.Skill>();
@@ -28,7 +29,7 @@ namespace Tweaks.Survivors
         private static ConfigEntry<bool> enabled, statsEnabled, barrageScaling, sticky, canCook, localCook, selfDamage;
         private static ConfigEntry<float> pierceBonus, fuse, selfPercent, chainDistance, sabotageDuration;
         private static ConfigEntry<int> pellets, shots, explosiveCount, maxExplosives;
-        private static ConfigEntry<string> primaryReload, secondaryReload;
+        private static ConfigEntry<string> primaryReload, secondaryReload, specialReload;
         private static S.Stats stats;
         private static CharacterBody prefabBody;
         private static GameObject roundPrefab, grenadePrefab, sabotagePrefab;
@@ -46,6 +47,7 @@ namespace Tweaks.Survivors
             statsEnabled = C.BindStartupBool("Survivor-Stats - 01 Commando", "Changes Enabled", true, "Enable Commando stat changes. Restart to apply. Vanilla: False.");
             foreach (string name in Names) switches[name] = C.BindStartupBool(Root + " - " + name, "Changes Enabled", true,
                 "Enable changes to " + name + ". Restart to apply. Vanilla: False.");
+            string barrageSection = Config.SurvivorConfigSections.Sorted(Root + " - Suppressive Fire");
             if (!enabled.Value) return;
             RoR2Application.onLoad += Load;
         }
@@ -142,7 +144,13 @@ namespace Tweaks.Survivors
             if (index == 3)
             {
                 primaryReload = C.Bind(s.Section, "Reload Primary Stocks On Use", "100%", "Primary stocks restored on use. Use Vanilla, a percentage such as 100%, or a whole number. Vanilla: " + S.Number(S.Value(s.Sample, "primaryReloadStockCount")) + " stocks.");
-                secondaryReload = C.Bind(s.Section, "Reload Secondary Stocks On Use", "Vanilla", "Secondary stocks restored on use. Use Vanilla, a percentage such as 100%, or a whole number. Vanilla: Unchanged.");
+                secondaryReload = C.Bind(s.Section, "Restock Secondary On Roll", "100%",
+                    "Secondary stocks restored when you roll. Use Vanilla, a percentage such as 100%, or a whole number. Vanilla: No stock restored.");
+                specialReload = C.Bind(s.Section, "Restock Special On Roll", "100%",
+                    "Special stocks restored when you roll. Use Vanilla, a percentage such as 100%, or a whole number. Vanilla: No stock restored.");
+                string previous = C.ReadRetiredValue(Config.SurvivorConfigSections.Sorted(s.Section), "Reload Secondary Stocks On Use", "Vanilla");
+                if (!string.IsNullOrWhiteSpace(previous) && !string.Equals(previous.Trim(), "Vanilla", StringComparison.OrdinalIgnoreCase))
+                    C.UseMigratedValue(secondaryReload, previous);
             }
             if (index == 5)
             {
@@ -217,7 +225,7 @@ namespace Tweaks.Survivors
                 Patch(typeof(HealthComponent), "TakeDamage", prefix: nameof(BeforeProjectileDamage));
             }
             if (skills.ContainsKey("FireFMJ")) Patch(typeof(ProjectileOverlapAttack), "AddToDamageCoefficient", nameof(BeforePierceIncrease));
-            if (skills.ContainsKey("ThrowGrenade"))
+            if (skills.TryGetValue("ThrowGrenade", out S.Skill grenade))
             {
                 Patch(typeof(GenericProjectileBaseState), "FixedUpdate", nameof(BeforeProjectileUpdate));
                 MethodInfo animation = AccessTools.Method(State("ThrowGrenade"), "PlayAnimation", new[] { typeof(float) });
@@ -225,6 +233,7 @@ namespace Tweaks.Survivors
                 harmony.Patch(animation, prefix: new HarmonyMethod(typeof(Commando), nameof(BeforeGrenadeAnimation)));
                 Patch(State("ThrowGrenade"), "ModifyProjectileInfo", postfix: nameof(AfterGrenadeInfo));
                 Patch(typeof(ProjectileImpactExplosion), "OnProjectileImpact", postfix: nameof(AfterGrenadeImpact));
+                UseGrenadeStateMachine(grenade.Definition);
             }
             if (skills.ContainsKey("Sabotage"))
             {
@@ -253,6 +262,47 @@ namespace Tweaks.Survivors
         }
         private static Exception AfterExecuteStocks(SkillDef __instance, StockPayment __state, Exception __exception)
         { if (__state != null) __instance.stockToConsume = __state.Original; return __exception; }
+        private static void UseGrenadeStateMachine(SkillDef definition)
+        {
+            GameObject prefab = prefabBody.gameObject;
+            var network = prefab.GetComponent<NetworkStateMachine>();
+            var machinesField = AccessTools.Field(typeof(NetworkStateMachine), "stateMachines");
+            var nativeMachines = network ? machinesField?.GetValue(network) as EntityStateMachine[] : null;
+            var original = prefab.GetComponents<EntityStateMachine>()
+                .FirstOrDefault(machine => machine.customName == definition.activationStateMachineName);
+            if (nativeMachines == null || !original)
+            {
+                ThreeQsVanillaTweaks.Log.Warning("Commando: could not install an independent Frag Grenade state machine.");
+                return;
+            }
+
+            var grenade = prefab.AddComponent<EntityStateMachine>();
+            grenade.customName = GrenadeMachine;
+            grenade.initialStateType = grenade.mainStateType = new SerializableEntityStateType(typeof(Idle));
+            machinesField.SetValue(network, nativeMachines.Append(grenade).ToArray());
+
+            // Cancel cooking wherever the game would idle the original weapon state.
+            var death = prefab.GetComponent<CharacterDeathBehavior>();
+            if (death) death.idleStateMachine = AppendGrenadeReset(death.idleStateMachine, original, grenade);
+            var hurt = prefab.GetComponent<SetStateOnHurt>();
+            if (hurt) hurt.idleStateMachine = AppendGrenadeReset(hurt.idleStateMachine, original, grenade);
+            prefabBody.vehicleIdleStateMachine = AppendGrenadeReset(prefabBody.vehicleIdleStateMachine, original, grenade);
+            definition.activationStateMachineName = GrenadeMachine;
+        }
+
+        private static EntityStateMachine[] AppendGrenadeReset(EntityStateMachine[] machines,
+            EntityStateMachine original, EntityStateMachine grenade)
+        {
+            return machines != null && Array.IndexOf(machines, original) >= 0 ? machines.Append(grenade).ToArray() : machines;
+        }
+
+        private static void RestockOnRoll(GenericSkill slot, ConfigEntry<string> setting)
+        {
+            if (!slot || slot.stock >= slot.maxStock) return;
+            int restored = S.Reload(C.Get(setting), slot.maxStock, 0);
+            if (restored > 0) slot.stock += Math.Min(restored, slot.maxStock - slot.stock);
+        }
+
         private static void ApplySettings()
         {
             if (stats != null && prefabBody)
@@ -278,9 +328,16 @@ namespace Tweaks.Survivors
                 case "FirePistol2": text = "Shoot for " + damage + "."; break;
                 case "FireFMJ": text = "Fire a " + S.Damage("piercing") + " bullet for " + damage + ". Each enemy pierced increases its current damage by " + S.Damage(S.Number(C.Get(pierceBonus)) + "%") + "."; break;
                 case "FireShotgunBlast": text = "Fire two close-range blasts of " + S.Damage(C.Get(pellets).ToString()) + " pellets for " + damage + " per pellet."; break;
-                case "DodgeState": text = S.Utility("Roll") + " a short distance." + ReloadDescription("primary", C.Get(primaryReload)) + ReloadDescription("secondary", C.Get(secondaryReload)); break;
+                case "DodgeState":
+                    text = S.Utility("Roll") + " a short distance." + ReloadDescription("primary", C.Get(primaryReload)) +
+                        ReloadDescription("secondary", C.Get(secondaryReload)) + ReloadDescription("special", C.Get(specialReload));
+                    break;
                 case "SlideState": text = S.Utility("Slide") + " a short distance. You can " + S.Utility("fire while sliding") + "."; break;
-                case "FireBarrage": text = "Fire " + S.Damage(C.Get(shots).ToString()) + " shots for " + damage + " each, " + S.Damage("stunning") + " enemies." + (C.Get(barrageScaling) ? " Fire more shots with increased " + S.Utility("attack speed") + "." : ""); break;
+                case "FireBarrage":
+                    text = "Fire " + S.Damage(C.Get(shots).ToString()) + " shots for " + damage + " each, " +
+                        S.Damage("stunning") + " enemies." +
+                        (C.Get(barrageScaling) ? " Fire more shots with increased " + S.Utility("attack speed") + "." : "");
+                    break;
                 case "ThrowGrenade": text = "Throw a " + S.Utility(C.Get(sticky) ? "sticky" : "bouncing") + " grenade for " + damage + ". Detonates after impact." + (C.Get(canCook) && localCook.Value ? " Hold to " + S.Utility("cook") + ". Cooking reduces the fuse; holding too long detonates it in your hand." : ""); break;
                 default: text = "Throw " + S.Damage(C.Get(explosiveCount).ToString()) + " explosives for " + damage + ". Shoot them to detonate, triggering nearby Sabotage explosives. Undetonated explosives detonate automatically."; break;
             }
@@ -309,6 +366,7 @@ namespace Tweaks.Survivors
             return text.ToString();
         }
         private static string ReloadDescription(string slot, string value) => string.Equals(value?.Trim(), "Vanilla", StringComparison.OrdinalIgnoreCase) ? "" : " Restore " + S.Utility(value + " " + slot + " stocks") + ".";
+
         private static void AfterBodyAwake(CharacterBody __instance) { if (stats != null && IsCommando(__instance)) stats.Apply(__instance); }
         private static void BeforeEnter(object __instance)
         {
@@ -316,7 +374,8 @@ namespace Tweaks.Survivors
             if (s.StateType.Name == "DodgeState" && __instance is EntityState dive && dive.outer)
             {
                 CharacterBody body = dive.outer.GetComponent<CharacterBody>();
-                if (body && body.skillLocator.primary) diveStocks.GetValue(__instance, key => new DiveStock()).Primary = body.skillLocator.primary.stock;
+                if (IsCommando(body) && body.skillLocator && body.skillLocator.primary)
+                    diveStocks.GetValue(__instance, key => new DiveStock()).Primary = body.skillLocator.primary.stock;
             }
             if (s.StateType.Name == "ThrowGrenade") cooks.Remove(__instance);
             if (s.Damage != null) S.Write(__instance, "damageCoefficient", C.Get(s.Damage) / 100f / Math.Max(0.00001f, s.DamageFactor));
@@ -345,17 +404,17 @@ namespace Tweaks.Survivors
             }
             if (s.StateType.Name == "Sabotage" || s.StateType.Name == "SabotageSpread")
                 S.Write(__instance, "fireInterval", C.Get(s.Interval) / (body ? Math.Max(0.01f, body.attackSpeed) : 1f));
-            if (s.StateType.Name == "DodgeState" && body && Util.HasEffectiveAuthority(body.gameObject))
+            if (s.StateType.Name == "DodgeState" && IsCommando(body) && body.skillLocator && Util.HasEffectiveAuthority(body.gameObject))
             {
-                GenericSkill primary = body.skillLocator.primary, secondary = body.skillLocator.secondary;
+                GenericSkill primary = body.skillLocator.primary;
                 // Native Dive resets primary stock in OnEnter. Restore the pre-roll stock before adding our reload.
                 if (primary && !string.Equals(C.Get(primaryReload)?.Trim(), "Vanilla", StringComparison.OrdinalIgnoreCase))
                 {
                     var saved = diveStocks.GetValue(__instance, key => new DiveStock());
                     primary.stock = Math.Min(primary.maxStock, saved.Primary + S.Reload(C.Get(primaryReload), primary.maxStock, 0));
                 }
-                if (secondary && !string.Equals(C.Get(secondaryReload)?.Trim(), "Vanilla", StringComparison.OrdinalIgnoreCase))
-                    secondary.stock = Math.Min(secondary.maxStock, secondary.stock + S.Reload(C.Get(secondaryReload), secondary.maxStock, 0));
+                RestockOnRoll(body.skillLocator.secondary, secondaryReload);
+                RestockOnRoll(body.skillLocator.special, specialReload);
             }
             if (s.StateType.Name == "ThrowGrenade")
             {

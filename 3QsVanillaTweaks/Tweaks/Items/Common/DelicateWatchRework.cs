@@ -12,17 +12,23 @@ namespace Tweaks.Items.Common
 {
     internal static class DelicateWatchRework
     {
-        static ConfigEntry<bool> enabled, repair;
+        static ConfigEntry<bool> enabled, repair, ignoreDamageOverTime, ignoreFallDamage;
         internal static bool RepairOnStage => Active && C.Get(repair);
 
-        static ConfigEntry<float> damage, extra, loss, lossStack, threshold, thresholdStack;
+        static ConfigEntry<float> damage, extra, loss, lossStack, threshold, thresholdStack, wearGracePeriod;
         static BuffDef wear;
         sealed class State
         {
             internal int Hits;
+            internal double LastWearTime = double.NegativeInfinity;
+
+            internal void ClearWear()
+            {
+                Hits = 0;
+                LastWearTime = double.NegativeInfinity;
+            }
         }
-        internal static float BreakThreshold(int stacks) =>
-            S.Total(threshold, thresholdStack, stacks);
+        internal static float BreakThreshold(int stacks) => S.Total(threshold, thresholdStack, stacks);
 
         static ConditionalWeakTable<CharacterMaster, State> states = new ConditionalWeakTable<CharacterMaster, State>();
         internal static bool Active => S.Active(enabled);
@@ -38,6 +44,10 @@ namespace Tweaks.Items.Common
             lossStack = S.Num(s, "Damage Lost Per Hit Per Stack (%)", 0, "Extra loss per hit for each additional watch.");
             threshold = S.Num(s, "Break Threshold (%)", 5, "If already at or below this remaining bonus when hit, break all watches.");
             thresholdStack = S.Num(s, "Break Threshold Per Stack (%)", 5, "Additional break threshold per extra watch.");
+            ignoreDamageOverTime = C.BindBool(s, "Ignore Damage Over Time", true, "Prevent damage-over-time ticks such as bleed and burn, as well as void fog, from wearing down or breaking watches.");
+            ignoreFallDamage = C.BindBool(s, "Ignore Fall Damage", true, "Prevent fall damage from wearing down or breaking watches.");
+            C.ReadRetiredValue(s, "Ignore Void Fog", true);
+            wearGracePeriod = S.Num(s, "Wear Grace Period (s)", 0, "Seconds after a hit counts toward watch wear during which further hits cannot wear down or break watches. Set to 0 to count every qualifying hit.");
             if (!enabled.Value)
             {
                 ThreeQsVanillaTweaks.Log.Info("Delicate Watch: rework disabled; normal settings apply when enabled.");
@@ -75,7 +85,7 @@ namespace Tweaks.Items.Common
             S.BuffTexts[wear.name] = new S.BuffText
             {
                 Title = "Watch Wear",
-                Text = icon => icon.buffCount + " damaging hits have worn down your Delicate Watches. Each hit removes " + C.Get(loss) + " percentage points of bonus damage before additional-stack scaling. " + Description()
+                Text = icon => icon.buffCount + " hits have worn down your Delicate Watches. " + Description()
             };
         }
 
@@ -88,19 +98,37 @@ namespace Tweaks.Items.Common
         }
 
         internal static float CalculateBonus(int stacks, int hits, float first, float additional, float lossPerHit, float additionalLoss) => Math.Max(0, S.Linear(stacks, first, additional) - hits * S.Linear(stacks, lossPerHit, additionalLoss));
-        internal static void DamageTaken(CharacterBody b)
+        internal static void DamageTaken(CharacterBody b, DamageInfo info)
         {
+            var type = info.damageType;
+            if (C.Get(ignoreFallDamage) && (type.damageType & DamageType.FallDamage) != 0)
+                return;
+
+            bool isDot = info.dotIndex != DotController.DotIndex.None || (type.damageType & DamageType.DoT) != 0;
+            bool isVoidFog = type.damageSource == DamageSource.Hazard &&
+                (type.damageTypeExtended & DamageTypeExtended.DamageField) != 0;
+            if (C.Get(ignoreDamageOverTime) && (isDot || isVoidFog))
+                return;
+
             int n = S.Count(b, DLC1Content.Items.FragileDamageBonus);
             if (n <= 0 || !b.master)
                 return;
             var state = states.GetValue(b.master, k => new State());
-            if (Bonus(b, n) <= S.Total(threshold, thresholdStack, n))
+            float grace = C.Get(wearGracePeriod);
+            double now = Time.fixedTimeAsDouble;
+            if (grace > 0f && now - state.LastWearTime < grace)
+                return;
+
+            if (Bonus(b, n) <= BreakThreshold(n))
             {
                 S.Consume(b, DLC1Content.Items.FragileDamageBonus, DLC1Content.Items.FragileDamageBonusConsumed, int.MaxValue);
-                state.Hits = 0;
+                state.ClearWear();
             }
             else
+            {
                 state.Hits = Math.Min(100000, state.Hits + 1);
+                state.LastWearTime = now;
+            }
             if (wear)
                 b.SetBuffCount(wear.buffIndex, state.Hits);
             b.RecalculateStats();
@@ -127,7 +155,7 @@ namespace Tweaks.Items.Common
             var inventory = b.inventory;
             var item = DLC1Content.Items.FragileDamageBonus;
             if (inventory && S.TotalHeld(inventory, item.itemIndex) == 0)
-                state.Hits = 0;
+                state.ClearWear();
             if (b.GetBuffCount(wear) != state.Hits)
                 b.SetBuffCount(wear.buffIndex, state.Hits);
         }
@@ -138,8 +166,20 @@ namespace Tweaks.Items.Common
             if (C.Get(damage) != 0 || C.Get(extra) != 0)
                 text = "Gain <style=cIsDamage>" + C.Get(damage) + "%</style> <style=cStack>(+" + C.Get(extra) + "% per stack)</style> <style=cIsDamage>damage</style>. ";
             if (C.Get(loss) != 0 || C.Get(lossStack) != 0)
-                text += "Each damaging hit removes <style=cIsHealth>" + C.Get(loss) + " percentage points</style> <style=cStack>(+" + C.Get(lossStack) + " per stack)</style> of bonus damage. ";
-            return text + "Being hit with at most <style=cIsHealth>" + C.Get(threshold) + "%</style> <style=cStack>(+" + C.Get(thresholdStack) + "% per stack)</style> bonus remaining <style=cIsHealth>breaks</style> the watches." + (RepairOnStage ? " <style=cIsUtility>Fully repaired</style> at the start of the next stage." : "");
+                text += "Each qualifying hit removes <style=cIsHealth>" + C.Get(loss) + " percentage points</style> <style=cStack>(+" + C.Get(lossStack) + " per stack)</style> of bonus damage. ";
+            text += "A qualifying hit with at most <style=cIsHealth>" + C.Get(threshold) + "%</style> <style=cStack>(+" + C.Get(thresholdStack) + "% per stack)</style> bonus remaining <style=cIsHealth>breaks</style> the watches.";
+            bool ignoreDots = C.Get(ignoreDamageOverTime);
+            bool ignoreFalls = C.Get(ignoreFallDamage);
+            if (ignoreDots && ignoreFalls)
+                text += " Ignores damage over time, void fog, and fall damage for watch wear.";
+            else if (ignoreDots)
+                text += " Ignores damage over time and void fog for watch wear.";
+            else if (ignoreFalls)
+                text += " Ignores fall damage for watch wear.";
+            float grace = C.Get(wearGracePeriod);
+            if (grace > 0f)
+                text += " At most one hit counts every <style=cIsUtility>" + grace + "s</style>.";
+            return text + (RepairOnStage ? " <style=cIsUtility>Fully repaired</style> at the start of the next stage." : "");
         }
     }
 }

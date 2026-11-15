@@ -160,7 +160,8 @@ namespace Tweaks.Survivors
             {
                 prefabBody = Addressables.LoadAssetAsync<GameObject>("RoR2/Base/Engi/EngiBody.prefab").WaitForCompletion().GetComponent<CharacterBody>();
                 harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Survivors.Engineer");
-                if (statsEnabled.Value) { stats = new S.Stats(StatsRoot, prefabBody); stats.Apply(prefabBody); }
+                if (statsEnabled.Value) { stats = new S.Stats(StatsRoot, prefabBody,
+                    new Dictionary<string, float> { { "baseArmor", 10f } }); stats.Apply(prefabBody); }
                 SkillDef[] defs = prefabBody.GetComponents<GenericSkill>().Where(slot => slot.skillFamily)
                     .SelectMany(slot => slot.skillFamily.variants.Select(v => v.skillDef)).Where(d => d).Distinct().ToArray();
                 for (int i = 0; i < Names.Length; i++)
@@ -173,6 +174,7 @@ namespace Tweaks.Survivors
                     foreach (SkillDef def in variants)
                     {
                         var p = new Profile { Index = i, Skill = new S.Skill(Root + " - " + Names[i], def, damage, switches[Names[i]]) };
+                        if (i == 5) p.Skill.SprintPolicyState = State("EngiMissilePainter.Paint");
                         Bind(p); p.Skill.Loaded = true; allProfiles.Add(p); definitions[def] = p;
                         if (!profiles.ContainsKey(i)) profiles[i] = p;
                         Tweaks.ModCompatibility.LookingGlassSkillStats.Register(def, () => Extra(p), p.Skill.Proc == null ? null : new Func<float>(() => C.Get(p.Skill.Proc)));
@@ -409,7 +411,7 @@ namespace Tweaks.Survivors
             {
                 p.Skill.ApplyDefinition();
                 // Non-Agile skills block sprinting during use instead of being interrupted by sprint input.
-                p.Skill.Definition.canceledFromSprinting = false;
+                if (!p.Skill.AutoSprintManaged) p.Skill.Definition.canceledFromSprinting = false;
                 if (p.Index == 5) p.Skill.Definition.stockToConsume = 0;
                 if (p.Index >= 6) { p.Skill.Definition.stockToConsume = 0; p.Stats?.Apply(p.Turret); ApplyAI(p.MasterPrefab, p); }
                 S.SetDescription(p.Skill, "3QS_ENGINEER_" + p.Index + "_DESCRIPTION", () => Description(p));
@@ -469,7 +471,7 @@ namespace Tweaks.Survivors
             __state = new Scope { Previous = activeState };
             activeState = Owned(__instance) ? __instance : null; if (activeState == null) return;
             Profile sprintProfile = AnimationProfile(__instance);
-            if (IsEngineer(Body(__instance)) && sprintProfile != null && sprintProfile.Skill.Definition.cancelSprintingOnActivation) Body(__instance).isSprinting = false;
+            if (IsEngineer(Body(__instance)) && ShouldBlockSprint(__instance, sprintProfile)) Body(__instance).isSprinting = false;
             string name = __instance.GetType().Name; string ns = __instance.GetType().Namespace ?? "";
             if (profiles.ContainsKey(0) && name == "ChargeGrenades")
             {
@@ -1015,16 +1017,28 @@ namespace Tweaks.Survivors
         private static void BeforeSprint(CharacterBody __instance, ref bool value)
         {
             if (!value || !IsEngineer(__instance)) return;
-            if (__instance.GetComponents<EntityStateMachine>().Any(machine => AnimationProfile(machine.state)?.Skill.Definition.cancelSprintingOnActivation == true)) value = false;
+            if (__instance.GetComponents<EntityStateMachine>().Any(machine => ShouldBlockSprint(machine.state, AnimationProfile(machine.state)))) value = false;
         }
-        private static bool CancelSprint(CharacterBody body) => body.isSprinting && (!IsEngineer(body) || !profiles.ContainsKey(1));
+        private static bool ShouldBlockSprint(EntityState state, Profile profile) =>
+            profile?.Skill.Definition.cancelSprintingOnActivation == true &&
+            !profile.Skill.AutoSprintManaged && !S.AutoSprintHandles(state?.GetType());
+
+        private static bool CancelSprint(CharacterBody body, EntityState state) => body.isSprinting &&
+            (!IsEngineer(body) || !profiles.TryGetValue(1, out Profile profile) ||
+                profile.Skill.AutoSprintManaged || S.AutoSprintHandles(state.GetType()));
         private static IEnumerable<CodeInstruction> SprintIL(IEnumerable<CodeInstruction> instructions)
         {
             MethodInfo getter = AccessTools.Property(typeof(CharacterBody), "isSprinting").GetMethod;
             foreach (CodeInstruction code in instructions)
             {
-                if ((code.opcode == OpCodes.Call || code.opcode == OpCodes.Callvirt) && Equals(code.operand, getter)) { code.opcode = OpCodes.Call; code.operand = AccessTools.Method(typeof(Engineer), nameof(CancelSprint)); }
-                yield return code;
+                if (code.Calls(getter))
+                {
+                    var load = new CodeInstruction(OpCodes.Ldarg_0);
+                    load.labels.AddRange(code.labels); load.blocks.AddRange(code.blocks);
+                    yield return load;
+                    yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(Engineer), nameof(CancelSprint)));
+                }
+                else yield return code;
             }
         }
         private static void AfterRequired(SkillDef __instance, GenericSkill skillSlot, ref bool __result) { if (__result && definitions.TryGetValue(__instance, out Profile p) && p.Skill.RequireAll) __result = skillSlot.stock >= skillSlot.maxStock; }

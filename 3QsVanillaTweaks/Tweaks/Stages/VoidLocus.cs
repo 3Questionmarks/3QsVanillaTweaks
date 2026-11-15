@@ -208,6 +208,7 @@ namespace Tweaks.Stages
             { placementMode = DirectorPlacementRule.PlacementMode.DirectWithoutRandomRotation, spawnOnTarget = target },
                 Read<Xoroshiro128Plus>(mission.Owner, "rng")));
             if (!portal) { ThreeQsVanillaTweaks.Log.Warning("Void Locus Deep Void Portal could not be spawned."); return; }
+            DebugStuff.InteractablePlacementEditor.Register(portal, "Deep Void Portal", "Stages - Void Locus - Deep Void Portal", alreadySpawned: true);
             mission.Complete = true;
             string token = Read<string>(mission.Owner, "portalOpenChatToken");
             if (!string.IsNullOrEmpty(token)) Chat.SendBroadcastChat(new Chat.SimpleChatMessage { baseToken = token });

@@ -30,12 +30,12 @@ namespace Tweaks.Stages
 
         private static void FilterNaturalShrines(SceneDirector director, DirectorCardCategorySelection selection)
         {
-            if (!UnityEngine.Networking.NetworkServer.active || !Run.instance || !StageFeatureSpawnHelper.IsStageOneMap() ||
+            if (!UnityEngine.Networking.NetworkServer.active || !Run.instance || !director ||
+                !StageFeatureSpawnHelper.IsStageOneMap(director.gameObject.scene) ||
                 !ModConfig.Get(settings.Enabled) || !selection) return;
             if (!PendingSpawns.TryGetValue(director, out Pending pending))
             {
-                var rng = new Xoroshiro128Plus(Run.instance.stageRng.nextUlong);
-                pending = new Pending { Rng = rng, Spawn = StageFeatureSpawnHelper.Roll(ModConfig.Get(settings.Chance), rng) };
+                pending = RollForStage();
                 PendingSpawns[director] = pending;
             }
             // This selection is a temporary copy made by SceneDirector; never mutate the original stage assets.
@@ -55,14 +55,24 @@ namespace Tweaks.Stages
             }
         }
 
+        private static Pending RollForStage()
+        {
+            var rng = new Xoroshiro128Plus(Run.instance.stageRng.nextUlong);
+            return new Pending { Rng = rng, Spawn = StageFeatureSpawnHelper.Roll(ModConfig.Get(settings.Chance), rng) };
+        }
+
         private static void AfterPopulate(SceneDirector director)
         {
-            if (!PendingSpawns.TryGetValue(director, out Pending pending)) return;
+            if (!director) return;
+            PendingSpawns.TryGetValue(director, out Pending pending);
             PendingSpawns.Remove(director);
-            if (!UnityEngine.Networking.NetworkServer.active || !Run.instance || !StageFeatureSpawnHelper.IsStageOneMap() ||
-                !ModConfig.Get(settings.Enabled) || !pending.Spawn || !StageFeatureSpawnHelper.ExpansionEnabled("RoR2/DLC2/Common/DLC2.asset")) return;
+            if (!UnityEngine.Networking.NetworkServer.active || !Run.instance ||
+                !StageFeatureSpawnHelper.IsStageOneMap(director.gameObject.scene) ||
+                !ModConfig.Get(settings.Enabled) || !StageFeatureSpawnHelper.ExpansionEnabled("RoR2/DLC2/Common/DLC2.asset")) return;
             try
             {
+                pending = pending ?? RollForStage();
+                if (!pending.Spawn) return;
                 // Use the stage's own card whenever possible, retaining any stage-specific prefab tuning.
                 SpawnCard card = pending.Card ? pending.Card : StageFeatureSpawnHelper.LoadSpawnCard("iscShrineHalcyonite");
                 if (!StageFeatureSpawnHelper.PrefabAllowed(card.prefab)) return;
@@ -75,6 +85,7 @@ namespace Tweaks.Stages
                     var rule = new DirectorPlacementRule { placementMode = DirectorPlacementRule.PlacementMode.Random };
                     GameObject instance = DirectorCore.instance.TrySpawnObject(new DirectorSpawnRequest(card, rule, pending.Rng));
                     if (!instance) continue;
+                    DebugStuff.InteractablePlacementEditor.Register(instance, settings.Name, settings.Enabled.Definition.Section, alreadySpawned: true);
                     Log.Info("Stage feature spawned Halcyon Shrine on " + director.gameObject.scene.name + " at " + instance.transform.position);
                     return;
                 }

@@ -9,13 +9,16 @@ namespace ThreeQsVanillaTweaks
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
     [BepInDependency(R2API.LanguageAPI.PluginGUID)]
     [BepInDependency(R2API.PrefabAPI.PluginGUID)]
+    [BepInDependency(R2API.ColorsAPI.PluginGUID)]
     [BepInDependency("Viliger.RegisterCommandChest", BepInDependency.DependencyFlags.SoftDependency)]
+    [BepInDependency(RetroactiveMacroGuid, BepInDependency.DependencyFlags.SoftDependency)]
     public class VanillaTweaksPlugin : BaseUnityPlugin
     {
         public const string PluginAuthor = "3Questionmarks";
         public const string PluginName = "3QsVanillaTweaks";
         public const string PluginGUID = PluginAuthor + "." + PluginName;
         public const string PluginVersion = "0.4.0";
+        internal const string RetroactiveMacroGuid = "Onyx.RetroactiveMacro";
 
         private void Awake()
         {

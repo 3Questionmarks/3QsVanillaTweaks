@@ -19,7 +19,9 @@ namespace Tweaks.Interactables
         private static ConfigEntry<bool> multiplePlayers, mealsToInventory;
         private static Type mealType, waitType, idleType;
         private static MethodInfo isAffordable;
-        private static GameObject menuPrefab;
+        internal static GameObject MenuPrefab { get; private set; }
+        internal static GameObject ChefPrefab { get; private set; }
+        private static bool hooksInstalled;
         [ThreadStatic] private static Meal activeDrop;
 
         internal static void Init()
@@ -29,6 +31,13 @@ namespace Tweaks.Interactables
                 "Allow multiple players to use the Chef's menu at the same time. Vanilla: False.");
             mealsToInventory = ModConfig.BindBool(section, "Meals Go To Inventory", true,
                 "Send cooked meals to the cooking player's inventory. Equipment still drops normally. Vanilla: False.");
+            InstallHooks();
+        }
+
+        internal static void InstallHooks()
+        {
+            if (hooksInstalled) return;
+            hooksInstalled = true;
             mealType = typeof(Run).Assembly.GetType("RoR2.MealPrepController");
             waitType = typeof(Run).Assembly.GetType("EntityStates.MealPrep.WaitToBeginCooking");
             Type finishType = typeof(Run).Assembly.GetType("EntityStates.MealPrep.CookingToIdle");
@@ -67,25 +76,28 @@ namespace Tweaks.Interactables
         }
 
         private static bool Active => Run.instance && SpawnRequirements.ExpansionEnabled("DLC3");
+        private static bool MultiplePlayers => multiplePlayers != null && ModConfig.Get(multiplePlayers);
+        private static bool MealsToInventory => mealsToInventory != null && ModConfig.Get(mealsToInventory);
 
         private static void PrepareMenus()
         {
-            if (menuPrefab) return;
+            if (MenuPrefab) return;
             try
             {
                 GameObject original;
                 try { original = Stages.StageInteractableAssets.Interactable("MealPrep", mealType.FullName); }
                 catch (InvalidOperationException) { original = Stages.StageInteractableAssets.Interactable("Chef", mealType.FullName); }
-                menuPrefab = PrefabAPI.InstantiateClone(original, "3Qs_WanderingChefMenu", true);
-                menuPrefab.AddComponent<MenuProxy>();
+                ChefPrefab = original;
+                MenuPrefab = PrefabAPI.InstantiateClone(original, "3Qs_WanderingChefMenu", true);
+                MenuPrefab.AddComponent<MenuProxy>();
                 // Each networked proxy contains only an invisible, non-interactable menu.
                 // The real Chef alone runs the cooking animation and produces the rewards.
-                foreach (Renderer renderer in menuPrefab.GetComponentsInChildren<Renderer>(true)) renderer.enabled = false;
-                foreach (Collider collider in menuPrefab.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
-                foreach (Animator animator in menuPrefab.GetComponentsInChildren<Animator>(true)) animator.enabled = false;
+                foreach (Renderer renderer in MenuPrefab.GetComponentsInChildren<Renderer>(true)) renderer.enabled = false;
+                foreach (Collider collider in MenuPrefab.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+                foreach (Animator animator in MenuPrefab.GetComponentsInChildren<Animator>(true)) animator.enabled = false;
                 Type speech = typeof(Run).Assembly.GetType("RoR2.CharacterSpeech.MealPrepSpeechDriver");
                 if (speech != null)
-                    foreach (Component component in menuPrefab.GetComponentsInChildren(speech, true))
+                    foreach (Component component in MenuPrefab.GetComponentsInChildren(speech, true))
                         if (component is Behaviour behaviour) behaviour.enabled = false;
             }
             catch (Exception e) { Log.Warning("Wandering Chef menus could not be prepared: " + e); }
@@ -110,6 +122,8 @@ namespace Tweaks.Interactables
         internal sealed class ChefQueue : MonoBehaviour
         {
             internal Component Controller;
+            internal GameObject MenuPrefab;
+            internal Action<MenuProxy> PrepareMenu;
             internal Meal Current;
             internal readonly Queue<Meal> Waiting = new Queue<Meal>();
             internal readonly Dictionary<CharacterMaster, MenuProxy> Menus = new Dictionary<CharacterMaster, MenuProxy>();
@@ -136,9 +150,9 @@ namespace Tweaks.Interactables
             }
         }
 
-        private static Component Controller(Component component) => component ? component.GetComponent(mealType) : null;
+        internal static Component Controller(Component component) => component ? component.GetComponent(mealType) : null;
 
-        private static ChefQueue QueueFor(Component controller)
+        internal static ChefQueue QueueFor(Component controller)
         {
             ChefQueue queue = controller.GetComponent<ChefQueue>();
             if (!queue) queue = controller.gameObject.AddComponent<ChefQueue>();
@@ -155,10 +169,11 @@ namespace Tweaks.Interactables
         private static bool BeforeInteractability(PickupPickerController __instance, Interactor activator, ref Interactability __result)
         {
             if (__instance.GetComponentInParent<MenuProxy>()) { __result = Interactability.Disabled; return false; }
-            if (!ModConfig.Get(multiplePlayers) || !Active || !menuPrefab || !Controller(__instance)) return true;
+            if (!Active || !MenuPrefab || !Controller(__instance)) return true;
+            ChefQueue chef = __instance.GetComponent<ChefQueue>();
+            if (!MultiplePlayers && (!chef || !chef.MenuPrefab)) return true;
             CharacterMaster cook = CookFor(activator);
             if (!cook || (activator.isRemoteOp && !__instance.allowRemoteOpInteraction)) return true;
-            ChefQueue chef = __instance.GetComponent<ChefQueue>();
             __result = chef && chef.Menus.TryGetValue(cook, out MenuProxy menu) && menu &&
                 (menu.Pending || menu.GetComponentInChildren<NetworkUIPromptController>(true).inUse)
                 ? Interactability.ConditionsNotMet : Interactability.Available;
@@ -169,23 +184,32 @@ namespace Tweaks.Interactables
         {
             if (__instance.GetComponentInParent<MenuProxy>()) return true;
             Component controller = Controller(__instance);
-            if (!NetworkServer.active || !ModConfig.Get(multiplePlayers) || !Active || !menuPrefab || !controller) return true;
+            if (!NetworkServer.active || !Active || !MenuPrefab || !controller) return true;
+            var existing = controller.GetComponent<ChefQueue>();
+            if (!MultiplePlayers && (!existing || !existing.MenuPrefab)) return true;
             CharacterMaster cook = CookFor(activator);
             if (!cook || !cook.inventory) return false;
             ChefQueue chef = QueueFor(controller);
             if (!chef.Menus.TryGetValue(cook, out MenuProxy menu) || !menu)
             {
-                GameObject instance = UnityEngine.Object.Instantiate(menuPrefab, controller.transform.position, controller.transform.rotation);
+                GameObject instance = UnityEngine.Object.Instantiate(chef.MenuPrefab ? chef.MenuPrefab : MenuPrefab,
+                    controller.transform.position, controller.transform.rotation);
                 menu = instance.GetComponent<MenuProxy>();
                 menu.Owner = cook;
                 menu.Chef = chef;
+                chef.PrepareMenu?.Invoke(menu);
                 instance.SetActive(true);
                 chef.Menus[cook] = menu;
                 NetworkServer.Spawn(instance);
             }
+            else
+            {
+                var prompt = menu.GetComponentInChildren<NetworkUIPromptController>(true);
+                if (menu.Pending || prompt.inUse) return false;
+                chef.PrepareMenu?.Invoke(menu);
+            }
+
             var picker = menu.GetComponentInChildren<PickupPickerController>(true);
-            var prompt = menu.GetComponentInChildren<NetworkUIPromptController>(true);
-            if (menu.Pending || prompt.inUse) return false;
             picker.SetAvailable(true);
             picker.OnInteractionBegin(activator);
             return false;
@@ -210,12 +234,13 @@ namespace Tweaks.Interactables
             PickupIndex reward, int count, out CookingCall __state)
         {
             __state = null;
-            if (!NetworkServer.active || !Active || (!ModConfig.Get(multiplePlayers) && !ModConfig.Get(mealsToInventory))) return true;
+            if (!NetworkServer.active || !Active) return true;
+            MenuProxy menu = __instance.GetComponentInParent<MenuProxy>();
+            if (!menu && !MultiplePlayers && !MealsToInventory) return true;
             CharacterMaster cook = CookFor(activator);
             CharacterBody body = activator ? activator.GetComponent<CharacterBody>() : null;
             if (!cook || !cook.inventory || !body || count <= 0 || itemsToTake == null || PickupCatalog.GetPickupDef(reward) == null) return false;
-            MenuProxy menu = __instance.GetComponentInParent<MenuProxy>();
-            if (menu && (menu.Owner != cook || menu.Pending || !menu.Chef || !ModConfig.Get(multiplePlayers))) return false;
+            if (menu && (menu.Owner != cook || menu.Pending || !menu.Chef || (!menu.Chef.MenuPrefab && !MultiplePlayers))) return false;
             ChefQueue chef = menu ? menu.Chef : QueueFor(__instance);
             if (!menu && chef.Current != null) return false;
             if (!(bool)isAffordable.Invoke(__instance, new object[] { itemsToTake, body })) return false;
@@ -280,7 +305,7 @@ namespace Tweaks.Interactables
 
         private static bool DeliverMeal(PickupIndex pickupIndex)
         {
-            if (activeDrop == null || activeDrop.Reward != pickupIndex || !ModConfig.Get(mealsToInventory)) return true;
+            if (activeDrop == null || activeDrop.Reward != pickupIndex || !MealsToInventory) return true;
             Meal meal = activeDrop;
             activeDrop = null;
             try { return !GrantMeal(meal.Cook, pickupIndex); }
@@ -313,7 +338,7 @@ namespace Tweaks.Interactables
         private static void CompleteRemaining(Meal meal, Vector3 position)
         {
             for (int i = meal.Sent; i < meal.Count; ++i)
-                if (!ModConfig.Get(mealsToInventory) || !GrantMeal(meal.Cook, meal.Reward))
+                if (!MealsToInventory || !GrantMeal(meal.Cook, meal.Reward))
                 {
                     var info = new GenericPickupController.CreatePickupInfo
                     {

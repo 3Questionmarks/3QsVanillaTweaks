@@ -9,6 +9,7 @@ using R2API;
 using RoR2;
 using UnityEngine;
 using UnityEngine.Networking;
+using UnityEngine.SceneManagement;
 using RoR2.UI;
 using ThreeQsVanillaTweaks;
 using ModConfig = Config.ConfigManager;
@@ -24,10 +25,18 @@ namespace Tweaks.RoRArtifacts
     internal static class TemporaryLunarCoins
     {
         private const string Section = "Artifacts - Fleeting Moon";
+        private const short SharedBalanceMessageId = 190;
+        private const uint BossCoinReward = 3;
+        private const uint StageLootCoinReward = 2;
+        private const uint CoinsPerKarma = 5;
         private static ConfigEntry<int> startingCoins;
+        private static ConfigEntry<bool> shareRunWallet;
         private static ConfigEntry<float> dropMultiplier;
         private static ConfigEntry<bool> earnPermanentCoins;
         private static ConfigEntry<int> permanentCoinInterval;
+        private static ConfigEntry<bool> debugGrantEnabled;
+        private static ConfigEntry<KeyboardShortcut> debugGrantKey;
+        private static ConfigEntry<int> debugGrantAmount;
         private static ArtifactDef artifact;
         private static readonly Dictionary<NetworkUser, uint> savedBalances = new Dictionary<NetworkUser, uint>();
         private static readonly Dictionary<NetworkUser, uint> temporaryBalances = new Dictionary<NetworkUser, uint>();
@@ -38,15 +47,24 @@ namespace Tweaks.RoRArtifacts
         private static bool grantingPermanent;
         private static PropertyInfo networkCoinsProperty;
         private static bool active;
+        private static bool sharedWallet;
+        private static long sharedBalance;
+        private static long clientBalance;
+        private static bool hasClientBalance;
+        private static NetworkClient registeredClient;
         private static int activationAttempts;
         private static Run pendingRun;
+        private static Stage stageWithCollectedLoot;
+        private static Stage lastCompletedLootStage;
         private static bool warned;
         private static readonly HashSet<int> boostedControllers = new HashSet<int>();
 
         internal static void Init()
         {
             startingCoins = ModConfig.Bind(Section, "Starting Lunar Coins", 5,
-                "Temporary Lunar Coins each player receives at the beginning of a run with the Artifact enabled. Your saved coins are left untouched.");
+                "Temporary Lunar Coins at run start. A shared wallet starts with this amount once, and individual wallets each start with this amount.");
+            shareRunWallet = ModConfig.BindBool(Section, "Share Temporary Lunar Coin Wallet", true,
+                "Pool temporary Lunar Coins for the entire team. Pickups add once, and spending reduces everyone's balance. Applies on the next run with Fleeting Moon.");
             dropMultiplier = ModConfig.Bind(Section, "Lunar Coin Drop Rate Multiplier", 5f,
                 "Multiplier to the configured base Lunar Coin drop chance (5 means five times normal). Successful-drop reduction is controlled separately in Other - Lunar Coins.");
 
@@ -54,6 +72,15 @@ namespace Tweaks.RoRArtifacts
                 "While the Artifact is active, earn one permanent Lunar Coin for every N world Lunar Coins collected. With Shared Lunar Coins enabled, each player counts their own awarded coins.");
             permanentCoinInterval = ModConfig.Bind(Section, "Pickups Per Permanent Coin", 0,
                 "World Lunar Coins needed to earn one permanent coin. 0 means round the drop-rate multiplier UP (5x = 5 coins). Any positive value overrides it.");
+
+            const string debugSection = "Debug - Fleeting Moon";
+            debugGrantEnabled = ModConfig.BindBool(debugSection, "Grant Temporary Lunar Coins On Key Press", true,
+                "Let the host add temporary Lunar Coins during a Fleeting Moon run.");
+            debugGrantKey = ModConfig.Bind(debugSection, "Grant Temporary Lunar Coins Shortcut", new KeyboardShortcut(KeyCode.F9),
+                "Shortcut to add temporary Lunar Coins as the host.");
+            debugGrantAmount = ModConfig.Bind(debugSection, "Temporary Lunar Coins Per Press", 5,
+                new ConfigDescription("Temporary Lunar Coins added to the shared wallet or your individual wallet.",
+                    new AcceptableValueRange<int>(1, 999)));
 
             artifact = ScriptableObject.CreateInstance<ArtifactDef>();
             artifact.cachedName = "3QS_ARTIFACT_FLEETING_MOON";
@@ -66,10 +93,7 @@ namespace Tweaks.RoRArtifacts
 #pragma warning restore CS0618
             LanguageAPI.Add(artifact.nameToken, "Artifact of the Fleeting Moon");
             UpdateArtifactDescription();
-            startingCoins.SettingChanged += (_, __) => UpdateArtifactDescription();
-            dropMultiplier.SettingChanged += (_, __) => UpdateArtifactDescription();
-            earnPermanentCoins.SettingChanged += (_, __) => UpdateArtifactDescription();
-            permanentCoinInterval.SettingChanged += (_, __) => UpdateArtifactDescription();
+            ModConfig.EffectiveSettingsChanged += UpdateArtifactDescription;
             ContentAddition.AddArtifactDef(artifact);
 
             networkCoinsProperty = typeof(NetworkUser).GetProperty("NetworknetLunarCoins",
@@ -123,6 +147,20 @@ namespace Tweaks.RoRArtifacts
             else
                 Log.Warning("Fleeting Moon: HUD.Update not found; temporary coin counter display unavailable.");
 
+            harmony.Patch(AccessTools.Method(typeof(CostTypeDef), nameof(CostTypeDef.IsAffordable),
+                    new[] { typeof(int), typeof(Interactor) }),
+                prefix: new HarmonyMethod(typeof(TemporaryLunarCoins), nameof(CheckCoinCost)));
+            harmony.Patch(AccessTools.Method(typeof(KarmaManager), nameof(KarmaManager.ModifyKarma), new[] { typeof(int) }),
+                prefix: new HarmonyMethod(typeof(TemporaryLunarCoins), nameof(BeforeModifyKarma)),
+                postfix: new HarmonyMethod(typeof(TemporaryLunarCoins), nameof(AfterModifyKarma)));
+            GlobalEventManager.onCharacterDeathServer += OnCharacterDeath;
+            GlobalEventManager.onCharacterPickupItem += OnCharacterPickupItem;
+            GenericPickupController.onPickupConsumed += OnPickupConsumed;
+            Stage.onServerStageComplete += OnStageComplete;
+            RoR2Application.onUpdate += RegisterBalanceClient;
+            RoR2Application.onUpdate += CheckDebugGrant;
+            Log.Info($"Fleeting Moon debug: temporary lunar coin shortcut bound ({debugGrantKey.Value}, {debugGrantAmount.Value} coins per press). Requires Use Debug Options.");
+            NetworkUser.onNetworkUserLoadedSceneServer += SyncNewPlayer;
             Run.onRunStartGlobal += BeginRun;
             Run.onRunDestroyGlobal += EndRun;
             Log.Info("Artifact of the Fleeting Moon registered; run-start activation check installed.");
@@ -130,15 +168,9 @@ namespace Tweaks.RoRArtifacts
 
         private static void UpdateArtifactDescription()
         {
-            int initial = Math.Max(0, ModConfig.Get(startingCoins));
-            float rate = Mathf.Max(0f, ModConfig.Get(dropMultiplier));
-            string description = "Start every run with " + initial +
-                " temporary Lunar Coins. Lunar Coin drop chance is multiplied by " +
-                rate.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "x.";
-            if (ModConfig.Get(earnPermanentCoins))
-                description += " Every " + GetPermanentThreshold() +
-                    " Lunar Coins collected awards 1 permanent Lunar Coin.";
-            description += " Victory and achievement Lunar Coins remain permanent. Your normal balance is restored after the run.";
+            string description = "Lunar coins are temporary.";
+            if (Bazaar.BazaarAlternateMode.EnabledByFleetingMoon)
+                description += " The Bazaar can be upgraded throughout the run with lunar coins.";
             LanguageAPI.Add(artifact.descriptionToken, description);
         }
 
@@ -158,6 +190,22 @@ namespace Tweaks.RoRArtifacts
             return null;
         }
 
+        private static bool UseTemporaryWallet => networkCoinsProperty != null && IsArtifactActive();
+
+        internal static bool SharedWalletActive => active && sharedWallet && NetworkServer.active;
+
+        private static void CheckDebugGrant()
+        {
+            if (!active || !Run.instance || !NetworkServer.active || !ModConfig.Get(debugGrantEnabled) ||
+                !ModConfig.Get(debugGrantKey).IsDown()) return;
+            var user = LocalUserManager.GetFirstLocalUser()?.currentNetworkUser;
+            if (!user) return;
+            InitializeWallet(user);
+            uint amount = (uint)ModConfig.Get(debugGrantAmount);
+            AddTemporaryCoins(user, amount);
+            Log.Info($"Fleeting Moon debug: added {amount} temporary lunar coins.");
+        }
+
         private static bool IsArtifactActive()
         {
             return RunArtifactManager.instance != null && artifact != null &&
@@ -169,6 +217,11 @@ namespace Tweaks.RoRArtifacts
             // onRunStartGlobal may fire before RunArtifactManager has finished
             // applying the rulebook. Recheck for a short time after run start.
             active = false;
+            stageWithCollectedLoot = null;
+            lastCompletedLootStage = null;
+            sharedWallet = false;
+            sharedBalance = 0;
+            hasClientBalance = false;
             savedBalances.Clear();
             temporaryBalances.Clear();
             pickupProgress.Clear();
@@ -209,12 +262,15 @@ namespace Tweaks.RoRArtifacts
             pendingRun = null;
             active = true;
             uint initial = (uint)Math.Max(0, ModConfig.Get(startingCoins));
+            sharedWallet = ModConfig.Get(shareRunWallet);
+            sharedBalance = initial;
             int users = 0;
             foreach (NetworkUser user in NetworkUser.readOnlyInstancesList)
             {
                 InitializeWallet(user);
                 users++;
             }
+            if (sharedWallet) PublishSharedBalance();
             int controllerCount = 0;
             foreach (PlayerCharacterMasterController controller in UnityEngine.Object.FindObjectsOfType<PlayerCharacterMasterController>())
             {
@@ -235,8 +291,8 @@ namespace Tweaks.RoRArtifacts
             uint count = (uint)Math.Max(0, ModConfig.Get(startingCoins));
             temporaryBalances[user] = count;
             pickupProgress[user] = 0u;
-            WriteNetCoins(user, count);
-            Log.Info("Fleeting Moon: wallet initialized for " + user.name + ": previous network balance=" + savedBalances[user] + ", requested temporary=" + count + ", network readback=" + ReadNetCoins(user));
+            RestoreTemporaryBalance(user);
+            Log.Info("Fleeting Moon: wallet initialized for " + user.name + ": temporary balance=" + ReadNetCoins(user));
         }
 
         // Only world-coin pickup awards become temporary currency. All other
@@ -262,19 +318,169 @@ namespace Tweaks.RoRArtifacts
                 return true;
             }
 
-            temporaryBalances[__instance] = SaturatingAdd(temporaryBalances[__instance], amount);
-            WriteNetCoins(__instance, temporaryBalances[__instance]);
-            Log.Info("Fleeting Moon: temporary award; network readback=" + ReadNetCoins(__instance));
+            AddTemporaryCoins(__instance, amount);
+            // Keep the separate permanent-pickup progression rule when vanilla-style pickup sharing is enabled.
+            if (sharedWallet && Tweaks.Others.SharedLunarCoins.SharesPickups)
+                foreach (var user in NetworkUser.readOnlyInstancesList)
+                    if (user && user != __instance && user.isParticipating)
+                        RecordPickupForPermanentRewards(user, amount);
             RecordPickupForPermanentRewards(__instance, amount);
             return false;
+        }
+
+        private static void AddTemporaryCoins(NetworkUser user, uint amount)
+        {
+            if (sharedWallet)
+            {
+                sharedBalance = Math.Min(uint.MaxValue, sharedBalance + amount);
+                PublishSharedBalance();
+            }
+            else
+            {
+                temporaryBalances[user] = SaturatingAdd(temporaryBalances[user], amount);
+                RestoreTemporaryBalance(user);
+            }
+        }
+
+        private static void AwardTeamTemporaryCoins(uint amount, string objective)
+        {
+            if (!active || !NetworkServer.active || !Run.instance || amount == 0) return;
+
+            bool awarded = false;
+            foreach (NetworkUser user in NetworkUser.readOnlyInstancesList)
+            {
+                if (!user || !user.isParticipating) continue;
+                InitializeWallet(user);
+                // Objective rewards bypass the world-pickup counter for permanent coins.
+                AddTemporaryCoins(user, amount);
+                awarded = true;
+                if (sharedWallet) break;
+            }
+
+            if (awarded)
+                Log.Info($"Fleeting Moon: awarded {amount} temporary lunar coins for {objective}.");
+        }
+
+        private static void OnCharacterDeath(DamageReport report)
+        {
+            if (!active || !NetworkServer.active || report.attackerTeamIndex != TeamIndex.Player ||
+                report.victimTeamIndex == TeamIndex.Player)
+                return;
+
+            if (report.victimIsBoss || (report.victimBody && BossGroup.FindBossGroup(report.victimBody)))
+                AwardTeamTemporaryCoins(BossCoinReward, "defeating a boss");
+        }
+
+        private static void BeforeModifyKarma(KarmaManager __instance, out uint __state)
+        {
+            __state = __instance.NetworkactualKarma;
+        }
+
+        private static void AfterModifyKarma(KarmaManager __instance, uint __state)
+        {
+            uint current = __instance.NetworkactualKarma;
+            if (current > __state)
+                AwardTeamTemporaryCoins((uint)Math.Min(uint.MaxValue, (ulong)(current - __state) * CoinsPerKarma),
+                    "gaining Karma");
+        }
+
+        private static void OnPickupConsumed(CharacterBody body, UniquePickup pickup)
+        {
+            OnCharacterPickupItem(body, pickup.pickupIndex, 1);
+        }
+
+        private static void OnCharacterPickupItem(CharacterBody body, PickupIndex pickupIndex, int count)
+        {
+            if (active && NetworkServer.active && count > 0 && body && body.teamComponent &&
+                body.teamComponent.teamIndex == TeamIndex.Player && IsItemPickup(pickupIndex))
+                stageWithCollectedLoot = Stage.instance;
+        }
+
+        private static void OnStageComplete(Stage stage)
+        {
+            if (!active || !NetworkServer.active || !stage || stageWithCollectedLoot != stage ||
+                lastCompletedLootStage == stage || !stage.sceneDef ||
+                (stage.sceneDef.sceneType != SceneType.Stage && stage.sceneDef.sceneType != SceneType.UntimedStage))
+                return;
+
+            lastCompletedLootStage = stage;
+            var scene = SceneInfo.instance ? SceneInfo.instance.gameObject.scene : stage.gameObject.scene;
+            if (!HasUncollectedStageLoot(scene))
+                AwardTeamTemporaryCoins(StageLootCoinReward, "collecting all stage items");
+        }
+
+        private static bool HasUncollectedStageLoot(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded) return true;
+
+            // Item loot can still be in flight or waiting for a player to choose it.
+            foreach (var pickup in UnityEngine.Object.FindObjectsOfType<GenericPickupController>())
+                if (pickup.gameObject.scene == scene && !pickup.consumed && IsItemPickup(pickup.GetPickupIndex()))
+                    return true;
+
+            foreach (var droplet in UnityEngine.Object.FindObjectsOfType<PickupDropletController>())
+                if (droplet.gameObject.scene == scene && IsItemPickup(droplet.GetPickupIndex()))
+                    return true;
+
+            foreach (var picker in UnityEngine.Object.FindObjectsOfType<PickupPickerController>())
+            {
+                if (picker.gameObject.scene != scene || picker.options == null ||
+                    picker is CraftingController || picker.GetComponentInParent<ScrapperController>() ||
+                    picker.GetComponent<PurchaseInteraction>())
+                    continue;
+
+                var prompt = picker.GetComponent<NetworkUIPromptController>();
+                if (!picker.available && (!prompt || !prompt.currentParticipantMaster))
+                    continue;
+
+                foreach (var option in picker.options)
+                    if (option.available && IsItemPickup(option.pickup.pickupIndex))
+                        return true;
+            }
+
+            foreach (var purchase in UnityEngine.Object.FindObjectsOfType<PurchaseInteraction>())
+            {
+                if (purchase.gameObject.scene != scene || !purchase.available) continue;
+
+                if (purchase.TryGetComponent(out ChestBehavior chest) && !chest.NetworkisChestOpened)
+                {
+                    PickupIndex drop = chest.currentPickup.pickupIndex;
+                    if (drop == PickupIndex.none || IsItemPickup(drop)) return true;
+                }
+
+                if (purchase.GetComponent<OptionChestBehavior>() || purchase.GetComponent<RouletteChestController>())
+                    return true;
+
+                if (purchase.TryGetComponent(out ShrineChanceBehavior shrine) &&
+                    shrine.successfulPurchaseCount < shrine.maxPurchaseCount)
+                    return true;
+
+                if (purchase.TryGetComponent(out ShopTerminalBehavior terminal) && !terminal.NetworkhasBeenPurchased &&
+                    IsStageShopCost(purchase.costType) && IsItemPickup(terminal.CurrentPickup().pickupIndex))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsStageShopCost(CostTypeIndex cost)
+        {
+            // These shops sell loot directly. Printers and cauldrons exchange owned items.
+            return cost == CostTypeIndex.Money || cost == CostTypeIndex.None ||
+                cost == CostTypeIndex.PercentHealth || cost == CostTypeIndex.LunarCoin ||
+                cost == CostTypeIndex.TreasureCacheItem || cost == CostTypeIndex.TreasureCacheVoidItem;
+        }
+
+        private static bool IsItemPickup(PickupIndex pickupIndex)
+        {
+            var pickup = PickupCatalog.GetPickupDef(pickupIndex);
+            return pickup != null && pickup.itemIndex != ItemIndex.None;
         }
 
         private static void AfterAward(NetworkUser __instance)
         {
             if (!active || !NetworkServer.active || __instance == null) return;
-            uint count;
-            if (temporaryBalances.TryGetValue(__instance, out count))
-                WriteNetCoins(__instance, count);
+            RestoreTemporaryBalance(__instance);
         }
 
         private static uint SaturatingAdd(uint value, uint amount)
@@ -284,9 +490,10 @@ namespace Tweaks.RoRArtifacts
 
         private static bool IsWorldCoinAward()
         {
-            // The shared-coin mod calls AwardLunarCoins from its postfix.
-            // Those grants represent the same physical pickup, and should
-            // contribute independently to each player's conversion progress.
+            if (Tweaks.Others.SharedLunarCoins.WorldCoinPickupInProgress) return true;
+            // Both the collector's original award and the other players' awards
+            // run inside LunarCoinDef.GrantPickup. The shared awards also have
+            // their own caller so they remain identifiable if the game changes.
             StackFrame[] frames = new StackTrace(false).GetFrames();
             if (frames == null) return false;
             foreach (StackFrame frame in frames)
@@ -294,7 +501,8 @@ namespace Tweaks.RoRArtifacts
                 MethodBase method = frame.GetMethod();
                 Type owner = method != null ? method.DeclaringType : null;
                 if (owner == null) continue;
-                if (owner.Name.IndexOf("LunarCoinPickup", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                if (owner.Name == "LunarCoinDef" && method.Name == "GrantPickup" ||
+                    owner.Name.IndexOf("LunarCoinPickup", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     (owner.Name == "GenericPickupController" && method.Name.IndexOf("Grant", StringComparison.OrdinalIgnoreCase) >= 0))
                     return true;
                 if (owner.Name == "SharedLunarCoins" && method.Name == "AfterCoinAward")
@@ -322,8 +530,7 @@ namespace Tweaks.RoRArtifacts
             if (earned == 0) return;
 
             // Defer permanent awards until the next update, outside the
-            // LunarCoinPickup call stack. Otherwise SharedLunarCoins could
-            // mistake this permanent award for another world pickup.
+            // world pickup call stack, keeping permanent rewards distinct.
             uint pending;
             pendingPermanentAwards.TryGetValue(user, out pending);
             pendingPermanentAwards[user] = SaturatingAdd(pending, earned);
@@ -365,8 +572,7 @@ namespace Tweaks.RoRArtifacts
                 finally
                 {
                     grantingPermanent = false;
-                    uint temporary;
-                    if (temporaryBalances.TryGetValue(user, out temporary)) WriteNetCoins(user, temporary);
+                    RestoreTemporaryBalance(user);
                 }
             }
         }
@@ -380,16 +586,24 @@ namespace Tweaks.RoRArtifacts
             if (activator == null) return false;
             NetworkUser user = Util.LookUpBodyNetworkUser(activator.gameObject);
             if (user == null) return false;
+            if (SharedWalletActive) return sharedBalance >= cost;
             uint balance;
             if (!temporaryBalances.TryGetValue(user, out balance))
                 balance = ReadNetCoins(user);
             return balance >= (uint)cost;
         }
 
+        private static bool CheckCoinCost(CostTypeDef __instance, int __0, Interactor __1, ref bool __result)
+        {
+            if (!UseTemporaryWallet || __instance != CostTypeCatalog.GetCostTypeDef(CostTypeIndex.LunarCoin)) return true;
+            __result = CanAffordTemporaryLunars(__1, __0);
+            return false;
+        }
+
         private static bool CheckLunarAffordability(PurchaseInteraction __instance,
             Interactor activator, ref bool __result)
         {
-            if (!IsArtifactActive() || __instance == null ||
+            if (!UseTemporaryWallet || __instance == null ||
                 __instance.costType != CostTypeIndex.LunarCoin)
                 return true;
             __result = CanAffordTemporaryLunars(activator, __instance.cost);
@@ -399,7 +613,7 @@ namespace Tweaks.RoRArtifacts
         private static bool BlockUnaffordableLunarPurchase(PurchaseInteraction __instance,
             Interactor activator)
         {
-            if (!IsArtifactActive() || __instance == null ||
+            if (!UseTemporaryWallet || __instance == null ||
                 __instance.costType != CostTypeIndex.LunarCoin)
                 return true;
             if (CanAffordTemporaryLunars(activator, __instance.cost)) return true;
@@ -414,6 +628,13 @@ namespace Tweaks.RoRArtifacts
             if (!active || !NetworkServer.active || __instance == null) return true;
             InitializeWallet(__instance);
             uint amount = Convert.ToUInt32(__0);
+            if (sharedWallet)
+            {
+                // A committed debit belongs to the team, even if a second transaction used the last coin.
+                sharedBalance = Math.Max(long.MinValue + amount, sharedBalance) - amount;
+                PublishSharedBalance();
+                return false;
+            }
             uint old = temporaryBalances[__instance];
             if (amount > old)
             {
@@ -449,7 +670,8 @@ namespace Tweaks.RoRArtifacts
             // Only modify the per-controller base once; the game's usual chance
             // reduction after a successful coin drop continues to work.
             float oldValue = Convert.ToSingle(multiplierField.GetValue(__instance));
-            multiplierField.SetValue(__instance, oldValue * rate);
+            float configuredRate = Tweaks.Other.LunarCoins.ConfiguredStartingChance(oldValue);
+            multiplierField.SetValue(__instance, configuredRate * rate);
             Log.Info("Fleeting Moon: drop multiplier adjusted on controller " + __instance.GetInstanceID() + " from " + oldValue + " to " + Convert.ToSingle(multiplierField.GetValue(__instance)));
             boostedControllers.Add(__instance.GetInstanceID());
         }
@@ -473,12 +695,12 @@ namespace Tweaks.RoRArtifacts
             }
             if (local == null) return;
 
-            uint displayed;
-            if (!temporaryBalances.TryGetValue(local, out displayed))
-                displayed = ReadNetCoins(local); // Remote client receives server-synced amount.
-
-            __instance.lunarCoinText.targetValue = displayed > int.MaxValue
-                ? int.MaxValue : (int)displayed;
+            long displayed;
+            if (SharedWalletActive) displayed = sharedBalance;
+            else if (!NetworkServer.active && hasClientBalance) displayed = clientBalance;
+            else if (temporaryBalances.TryGetValue(local, out uint individual)) displayed = individual;
+            else displayed = ReadNetCoins(local);
+            __instance.lunarCoinText.targetValue = (int)Math.Max(int.MinValue, Math.Min(int.MaxValue, displayed));
         }
 
         private static void EndRun(Run run)
@@ -489,6 +711,11 @@ namespace Tweaks.RoRArtifacts
                     if (saved.Key != null) WriteNetCoins(saved.Key, saved.Value);
             }
             active = false;
+            stageWithCollectedLoot = null;
+            lastCompletedLootStage = null;
+            sharedWallet = false;
+            sharedBalance = 0;
+            hasClientBalance = false;
             pendingRun = null;
             boostedControllers.Clear();
             savedBalances.Clear();
@@ -496,6 +723,54 @@ namespace Tweaks.RoRArtifacts
             pickupProgress.Clear();
             pendingPermanentAwards.Clear();
             flushScheduled = false;
+        }
+
+        private static void RestoreTemporaryBalance(NetworkUser user)
+        {
+            if (!temporaryBalances.TryGetValue(user, out uint individual)) return;
+            // The game's unsigned network wallet is used by stock affordance checks.
+            WriteNetCoins(user, sharedWallet ? (uint)Math.Max(0, sharedBalance) : individual);
+        }
+
+        private static void PublishSharedBalance()
+        {
+            foreach (var user in NetworkUser.readOnlyInstancesList)
+            {
+                if (!user) continue;
+                InitializeWallet(user);
+                RestoreTemporaryBalance(user);
+            }
+            NetworkServer.SendToAll(SharedBalanceMessageId, new SharedBalanceMessage { Balance = sharedBalance });
+        }
+
+        private static void SyncNewPlayer(NetworkUser user)
+        {
+            if (!active || !NetworkServer.active || !user) return;
+            InitializeWallet(user);
+            if (sharedWallet && user.connectionToClient != null)
+                user.connectionToClient.Send(SharedBalanceMessageId, new SharedBalanceMessage { Balance = sharedBalance });
+        }
+
+        private static void RegisterBalanceClient()
+        {
+            var manager = NetworkManager.singleton;
+            var client = manager ? manager.client : null;
+            if (client == registeredClient) return;
+            registeredClient = client;
+            hasClientBalance = false;
+            client?.RegisterHandler(SharedBalanceMessageId, message =>
+            {
+                if (NetworkServer.active) return;
+                clientBalance = message.ReadMessage<SharedBalanceMessage>().Balance;
+                hasClientBalance = true;
+            });
+        }
+
+        private sealed class SharedBalanceMessage : MessageBase
+        {
+            internal long Balance;
+            public override void Serialize(NetworkWriter writer) => writer.Write(Balance);
+            public override void Deserialize(NetworkReader reader) => Balance = reader.ReadInt64();
         }
 
         private static uint ReadNetCoins(NetworkUser user)

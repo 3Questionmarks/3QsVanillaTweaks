@@ -1,17 +1,14 @@
 using AccessTools = ThreeQsVanillaTweaks.ReflectionTools;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
-using BepInEx.Configuration;
 using HarmonyLib;
 using RoR2;
 using ThreeQsVanillaTweaks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.Networking;
-using ModConfig = Config.ConfigManager;
 
 namespace Tweaks.Bazaar
 {
@@ -21,42 +18,26 @@ namespace Tweaks.Bazaar
     /// </summary>
     internal static class CommonCauldron
     {
-        private const string Section = "Bazaar - 04 Common Cauldron";
+        internal const string LegacySection = "Bazaar - 04 Common Cauldron";
+        internal const string Section = "Bazaar - 05 Extra Interactables - 08 Common Cauldron";
         private const string PrefabPath = "RoR2/Base/LunarCauldrons/LunarCauldron, RedToWhite Variant.prefab";
-        private static ConfigEntry<bool> enabled;
-        private static ConfigEntry<float> spawnChance;
-        private static ConfigEntry<float> positionX;
-        private static ConfigEntry<float> positionY;
-        private static ConfigEntry<float> positionZ;
-        private static ConfigEntry<float> forwardX;
-        private static ConfigEntry<float> forwardY;
-        private static ConfigEntry<float> forwardZ;
-        private static BazaarSpawnHelper.GroundSettings ground;
         private static Stage spawnedStage;
         private static GameObject prefab;
-        private static bool warned;
+        private static BazaarSpawnHelper.Settings first, second;
         private static readonly HashSet<int> PaidCauldrons = new HashSet<int>();
 
         internal static void Init()
         {
-            enabled = ModConfig.BindBool(Section, "Add Green-to-White Cauldron", true,
-                "Spawn an additional cauldron in the Bazaar that trades 2 uncommon (green) items or scrap for 3 random common (white) items.");
-            spawnChance = ModConfig.Bind(Section, "Spawn Chance (%)", 50f,
-                "Chance (0-100%) to spawn the extra cauldron on each Bazaar visit.");
-            positionX = ModConfig.Bind(Section, "Position X", -141f,
-                "Absolute world-space X position of the additional Bazaar cauldron.");
-            positionY = ModConfig.Bind(Section, "Position Y", -25.8f,
-                "Absolute world-space Y position (height) of the additional Bazaar cauldron.");
-            positionZ = ModConfig.Bind(Section, "Position Z", -16.7f,
-                "Absolute world-space Z position of the additional Bazaar cauldron.");
-            forwardX = ModConfig.Bind(Section, "Forward X", 0.99f,
-                "X component of the direction the cauldron faces.");
-            forwardY = ModConfig.Bind(Section, "Forward Y", 0f,
-                "Y component of the direction the cauldron faces.");
-            forwardZ = ModConfig.Bind(Section, "Forward Z", -0.5f,
-                "Z component of the direction the cauldron faces.");
-
-            ground = BazaarSpawnHelper.BindGround(Section);
+            first = BazaarSpawnHelper.Bind(Section, "Common Cauldron", PrefabPath,
+                50f, -120.71f, -24.03f, -6.87f, -.258f, 0f, -.966f, alignToGround: false,
+                exactPose: "-117.210014, -24.2996559, -6.869999, 0, 89.92999, 0",
+                unlockSection: "Common Cauldron", editorSlot: LegacySection,
+                enabledKey: "Add Green-to-White Cauldron",
+                enabledDescription: "Allow the extra cauldron that trades two uncommon items for three common items.");
+            second = BazaarSpawnHelper.BindFormerUnlockOnly("Common Cauldron 2", PrefabPath,
+                -122.77f, -22.82f, -5.53f, .99f, 0f, -.5f,
+                exactPose: "-121.639633, -23.8940716, -6.592497, 5.00000143, 156.796082, 0");
+            RoR2Application.onLoad += PreparePrefab;
 
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Bazaar.CommonCauldron");
             harmony.Patch(AccessTools.Method(typeof(Stage), "Start"),
@@ -68,6 +49,29 @@ namespace Tweaks.Bazaar
             harmony.Patch(AccessTools.Method(typeof(PurchaseInteraction), "OnInteractionBegin"),
                 transpiler: new HarmonyMethod(typeof(CommonCauldron), nameof(PurchaseIL)));
             Log.Info("Bazaar extra common cauldron registered.");
+        }
+
+        private static void PreparePrefab()
+        {
+            try
+            {
+                var original = Addressables.LoadAssetAsync<GameObject>(PrefabPath).WaitForCompletion();
+                if (!original) throw new InvalidOperationException("The cauldron prefab could not be loaded.");
+                prefab = R2API.PrefabAPI.InstantiateClone(original, "3Qs_BazaarGreenToWhiteCauldron", true);
+                var purchase = prefab.GetComponent<PurchaseInteraction>();
+                var terminal = prefab.GetComponent<ShopTerminalBehavior>();
+                purchase.costType = CostTypeIndex.GreenItem;
+                purchase.cost = 2;
+                terminal.itemTier = ItemTier.Tier1;
+                terminal.dropTable = null;
+                terminal.dropAmount = 3;
+                terminal.debt = 1;
+            }
+            catch (Exception e)
+            {
+                prefab = null;
+                Log.Warning("Could not prepare the Bazaar common cauldron: " + e.Message);
+            }
         }
 
         // The reused Moon cauldron can invoke its payout handler more than once.
@@ -147,84 +151,33 @@ namespace Tweaks.Bazaar
 
         private static void OnStageStart(Stage __instance)
         {
-            if (!ModConfig.Get(enabled) || !InBazaar()) return;
-            if (NetworkServer.active && spawnedStage != __instance)
-            {
-                spawnedStage = __instance;
-                PaidCauldrons.Clear();
-                float chance = Mathf.Clamp(ModConfig.Get(spawnChance), 0f, 100f);
-                if (UnityEngine.Random.value * 100f < chance)
-                    __instance.StartCoroutine(SpawnWhenReady(__instance));
-            }
-            // The prefab is a vanilla registered network prefab. On remote clients its
-            // original cost type is restored when it is spawned; match and correct it.
-            if (NetworkClient.active && !NetworkServer.active)
-                __instance.StartCoroutine(ConfigureClientInstance(__instance));
+            if (!NetworkServer.active || !InBazaar() || spawnedStage == __instance) return;
+            spawnedStage = __instance;
+            PaidCauldrons.Clear();
+            __instance.StartCoroutine(BazaarSpawnHelper.SpawnNextFrame(__instance, SpawnCauldrons));
         }
 
-        private static IEnumerator ConfigureClientInstance(Stage stage)
+        private static void SpawnCauldrons()
         {
-            for (int attempt = 0; attempt < 120; attempt++)
-            {
-                if (stage == null || !InBazaar()) yield break;
-                foreach (PurchaseInteraction purchase in UnityEngine.Object.FindObjectsOfType<PurchaseInteraction>())
-                {
-                    if (purchase == null || purchase.costType != CostTypeIndex.RedItem || purchase.cost != 1) continue;
-                    // Bazaar has no natural red-to-white cauldron, so this is our spawn.
-                    ShopTerminalBehavior terminal = purchase.GetComponent<ShopTerminalBehavior>();
-                    if (terminal == null || terminal.dropAmount != 3) continue;
-                    purchase.costType = CostTypeIndex.GreenItem;
-                    purchase.cost = 2;
-                    terminal.itemTier = ItemTier.Tier1;
-                    terminal.dropTable = null;
-                    terminal.dropAmount = 3;
-                    yield break;
-                }
-                yield return new WaitForSeconds(0.25f);
-            }
+            if (!prefab) return;
+            foreach (var slot in new[] { first, second })
+                if (BazaarSpawnHelper.Roll(slot))
+                    BazaarSpawnHelper.Spawn(slot, prefab, slot.Name, slot.Position, slot.Forward, ConfigureCauldron);
         }
 
-        private static IEnumerator SpawnWhenReady(Stage stage)
+        private static void ConfigureCauldron(GameObject instance)
         {
-            yield return null;
-            if (stage == null || !NetworkServer.active || !InBazaar()) yield break;
-            try
-            {
-                if (prefab == null)
-                    prefab = Addressables.LoadAssetAsync<GameObject>(PrefabPath).WaitForCompletion();
-                if (prefab == null)
-                    throw new InvalidOperationException("Prefab not found: " + PrefabPath);
-
-                Vector3 position = new Vector3(ModConfig.Get(positionX), ModConfig.Get(positionY), ModConfig.Get(positionZ));
-                Vector3 forward = new Vector3(ModConfig.Get(forwardX), ModConfig.Get(forwardY), ModConfig.Get(forwardZ));
-                ground.GetPlacement("Common Cauldron", position, forward, out position, out Quaternion rotation);
-                GameObject instance = UnityEngine.Object.Instantiate(prefab, position, rotation);
-                instance.name = "3Qs_GreenToWhiteCauldron";
-                PurchaseInteraction purchase = instance.GetComponent<PurchaseInteraction>();
-                ShopTerminalBehavior terminal = instance.GetComponent<ShopTerminalBehavior>();
-                if (purchase == null || terminal == null)
-                {
-                    UnityEngine.Object.Destroy(instance);
-                    throw new InvalidOperationException("Vanilla red-to-white cauldron prefab lacks PurchaseInteraction or ShopTerminalBehavior.");
-                }
-                purchase.costType = CostTypeIndex.GreenItem;
-                purchase.cost = 2;
-                terminal.itemTier = ItemTier.Tier1;
-                terminal.dropTable = null;
-                terminal.dropAmount = 3;
-                terminal.debt = 1;
-                NetworkServer.Spawn(instance);
-                Log.Info("Spawned extra Bazaar 2-green-to-3-white cauldron at " + position);
-            }
-            catch (Exception e)
-            {
-                if (!warned)
-                {
-                    warned = true;
-                    Log.Warning("Common cauldron spawning failed: " + e);
-                }
-            }
-            yield break;
+            instance.name = "3Qs_GreenToWhiteCauldron";
+            var purchase = instance.GetComponent<PurchaseInteraction>();
+            var terminal = instance.GetComponent<ShopTerminalBehavior>();
+            if (!purchase || !terminal)
+                throw new InvalidOperationException("The common cauldron has no shop or purchase component.");
+            purchase.NetworkcostType = CostTypeIndex.GreenItem;
+            purchase.Networkcost = 2;
+            terminal.itemTier = ItemTier.Tier1;
+            terminal.dropTable = null;
+            terminal.dropAmount = 3;
+            terminal.debt = 1;
         }
     }
 }

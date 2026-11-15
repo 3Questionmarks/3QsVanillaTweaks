@@ -15,7 +15,20 @@ namespace Tweaks.Items.Uncommon
 {
     internal static class SquidPolyp
     {
+        const string HoldoutSpawns = "Spawn During Holdout Zones";
+        const string SpawnInterval = "Holdout Spawn Interval";
+        const string IntervalReduction = "Holdout Spawn Interval Reduction Per Stack (%)";
+        const float MinimumInterval = 1f;
         static UncommonConfig c;
+        static CharacterSpawnCard squidSpawnCard;
+        static readonly ConditionalWeakTable<HoldoutZoneController, ConditionalWeakTable<CharacterMaster, HoldoutTimer>> holdoutTimers =
+            new ConditionalWeakTable<HoldoutZoneController, ConditionalWeakTable<CharacterMaster, HoldoutTimer>>();
+
+        sealed class HoldoutTimer
+        {
+            internal float Elapsed;
+        }
+
         sealed class Lifetime : MonoBehaviour
         {
             internal float Remaining;
@@ -46,13 +59,106 @@ namespace Tweaks.Items.Uncommon
             c.B("Inherit Items", false, "Copy the summoner's inventory to the squid, excluding deployable-generating items to prevent recursion.");
             c.Pair("Damage (%)", 100, 0, "Multiplier for the squid's attack damage. Vanilla: 100%.");
             c.Pair("Proc Coefficient", 1, 0, "Squid attack proc coefficient. Vanilla: 1.");
+            c.B(HoldoutSpawns, true, "Periodically summon Squid Turrets near the centre of a charging holdout zone for each living player holding this item. Vanilla: false.");
+            c.N(SpawnInterval, 15, "Seconds between Squid Turret spawns during a holdout. Minimum: 1 second. Vanilla: no timed spawns.", MinimumInterval);
+            c.N(IntervalReduction, 0, "Percentage reduction to the remaining spawn interval for each additional stack. Vanilla: no timed spawns.", 0, 100);
             if (c.Enabled.Value)
+            {
                 MasterSummon.onServerMasterSummonGlobal += Spawn;
+                U.Patch(typeof(HoldoutZoneController), "Update", typeof(SquidPolyp), postfix: nameof(TickHoldout));
+                U.Patch(typeof(HoldoutZoneController), "OnDisable", typeof(SquidPolyp), postfix: nameof(ResetHoldout));
+            }
             U.Ensure();
             U.Hit += Hit;
             U.Tick += Tick;
             U.BeforeDamage += Damage;
-            c.Text(() => "Activating an interactable summons a <style=cIsDamage>Squid Turret</style> for " + c.V("Duration", "s", "cIsUtility") + "." + (c.B("Apply Tar On Hit") ? " Its attacks <style=cIsUtility>tar</style> enemies." : ""), () => "Activating an interactable summons a <style=cIsDamage>Squid Turret</style>.");
+            c.ShowStat = key => key != IntervalReduction && (key != SpawnInterval || c.B(HoldoutSpawns));
+            c.StatValue = (key, n, value) => key == SpawnInterval ? HoldoutInterval(n) : value;
+            c.Text(() => "Activating an interactable summons a <style=cIsDamage>Squid Turret</style> for " + c.V("Duration", "s", "cIsUtility") + "." +
+                (c.B(HoldoutSpawns) ? HoldoutDescription() : "") +
+                (c.B("Apply Tar On Hit") ? " Its attacks <style=cIsUtility>tar</style> enemies." : ""),
+                () => "Summon <style=cIsDamage>Squid Turrets</style> by activating interactables" +
+                    (c.B(HoldoutSpawns) ? " or during holdout events." : "."));
+        }
+
+        static float HoldoutInterval(int stacks) => Mathf.Max(MinimumInterval,
+            UncommonCalculations.StackCooldown(c.F(SpawnInterval), c.F(IntervalReduction), stacks));
+
+        static string HoldoutDescription()
+        {
+            float reduction = c.F(IntervalReduction);
+            return " During a charging holdout event, summon a turret near the centre every " + c.V(SpawnInterval, "s", "cIsUtility") +
+                (reduction > 0 ? " <style=cStack>(-" + reduction.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "% per stack)</style>" : "") + ".";
+        }
+
+        static void ResetHoldout(HoldoutZoneController __instance) => holdoutTimers.Remove(__instance);
+
+        static void TickHoldout(HoldoutZoneController __instance)
+        {
+            var zone = __instance;
+            if (!NetworkServer.active)
+                return;
+            if (!c.Active || !c.B(HoldoutSpawns) || zone.isFullyCharged)
+            {
+                holdoutTimers.Remove(zone);
+                return;
+            }
+            if (zone.currentChargeRateServer <= 0f || zone.currentRadius <= 0f)
+                return;
+
+            var timers = holdoutTimers.GetOrCreateValue(zone);
+            foreach (var player in PlayerCharacterMasterController.instances)
+            {
+                var master = player ? player.master : null;
+                if (!master)
+                    continue;
+                var body = master.GetBody();
+                int stacks = c.Count(body);
+                if (stacks <= 0 || master.teamIndex != zone.chargingTeam || !body.healthComponent || !body.healthComponent.alive)
+                {
+                    timers.Remove(master);
+                    continue;
+                }
+
+                var timer = timers.GetOrCreateValue(master);
+                timer.Elapsed += Time.deltaTime;
+                float interval = HoldoutInterval(stacks);
+                if (timer.Elapsed >= interval)
+                {
+                    timer.Elapsed = 0f;
+                    SummonAtHoldout(zone, body);
+                }
+            }
+        }
+
+        static void SummonAtHoldout(HoldoutZoneController zone, CharacterBody owner)
+        {
+            var director = DirectorCore.instance;
+            if (!director)
+                return;
+            if (!squidSpawnCard)
+                squidSpawnCard = LegacyResourcesAPI.Load<CharacterSpawnCard>("SpawnCards/CharacterSpawnCards/cscSquidTurret");
+            if (!squidSpawnCard)
+                return;
+
+            float radius = Mathf.Min(12f, zone.currentRadius);
+            var placement = new DirectorPlacementRule
+            {
+                placementMode = DirectorPlacementRule.PlacementMode.Approximate,
+                position = zone.transform.position,
+                minDistance = Mathf.Min(3f, radius * 0.5f),
+                maxDistance = radius
+            };
+            var request = new DirectorSpawnRequest(squidSpawnCard, placement, RoR2Application.rng)
+            {
+                teamIndexOverride = zone.chargingTeam,
+                summonerBodyObject = owner.gameObject
+            };
+            if (!director.TrySpawnObject(request))
+            {
+                placement.minDistance = 0f;
+                director.TrySpawnObject(request);
+            }
         }
 
         static readonly string[] excluded =

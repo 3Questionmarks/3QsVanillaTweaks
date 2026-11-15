@@ -2,6 +2,7 @@ using System.Reflection;
 using BepInEx.Configuration;
 using HarmonyLib;
 using RoR2;
+using RoR2.Projectile;
 using UnityEngine;
 using C = Config.ConfigManager;
 using A = ThreeQsVanillaTweaks.ReflectionTools;
@@ -38,13 +39,16 @@ namespace Tweaks.Others
                 harmony.Patch(target, prefix: new HarmonyMethod(typeof(DestructibleProcFilter), prefix) { priority = Priority.First });
         }
 
-        static bool IsCharacter(CharacterBody body, CharacterMaster master)
+        static bool IsCharacter(CharacterBody body, CharacterMaster master, bool includeNewt = false)
         {
-            // Neutral scenery sometimes has a CharacterBody for damage handling.
-            // A real character also has a master and belongs to a combat team.
+            // Some scenery has a CharacterBody and a neutral team for damage handling.
             if (!body || !master || !body.teamComponent) return false;
             TeamIndex team = body.teamComponent.teamIndex;
-            return team != TeamIndex.Neutral && team != TeamIndex.None;
+            if (team != TeamIndex.Neutral) return team != TeamIndex.None;
+
+            // Newt is a neutral character and can receive on-hit effects.
+            return includeNewt && body.bodyIndex != BodyIndex.None &&
+                body.bodyIndex == BodyCatalog.FindBodyIndex("ShopkeeperBody");
         }
 
         static HealthComponent Health(GameObject target)
@@ -57,7 +61,7 @@ namespace Tweaks.Others
 
         static bool IsProp(HealthComponent health)
         {
-            return health && !IsCharacter(health.body, health.body ? health.body.master : null);
+            return health && !IsCharacter(health.body, health.body ? health.body.master : null, includeNewt: true);
         }
 
         static bool HitEnemy(DamageInfo __0, GameObject __1)
@@ -75,12 +79,16 @@ namespace Tweaks.Others
 
         static bool DeathProc(DamageReport __0)
         {
-            return !Active || __0 == null || IsCharacter(__0.victimBody, __0.victimMaster);
+            if (!Active || __0 == null || IsCharacter(__0.victimBody, __0.victimMaster))
+                return true;
+
+            // Forgive Me Please uses the doll's own HealthComponent as the victim of each synthetic kill.
+            return __0.victim && __0.victim.TryGetComponent<DeathProjectile>(out _);
         }
 
         static bool DamageEvent(DamageReport __0)
         {
-            return !Active || __0 == null || IsCharacter(__0.victimBody, __0.victimMaster);
+            return !Active || __0 == null || IsCharacter(__0.victimBody, __0.victimMaster, includeNewt: true);
         }
 
         static bool ItemDamage(HealthComponent __0) => !Active || !IsProp(__0);

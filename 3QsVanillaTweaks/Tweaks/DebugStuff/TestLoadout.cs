@@ -22,7 +22,7 @@ namespace Tweaks.DebugStuff
             string[] defaults =
             {
                 "Mocha:40, Hopoo Feather:100, Alien Head:50, Dio's Best Friend:10, Rejuvenation Rack:10, Weeping Fungus:10, Ceremonial Dagger:10, Lens-Maker's Glasses:10, Laser Scope:10",
-                "Paul's Goat Hoof:20, Hopoo Feather:100, Alien Head:50, Dio's Best Friend:10, Rejuvenation Rack:10, Weeping Fungus:10",
+                "Paul's Goat Hoof:2, Hopoo Feather:100, Alien Head:50, Dio's Best Friend:10, Rejuvenation Rack:10, Weeping Fungus:10",
                 "Paul's Goat Hoof:5, Hopoo Feather:5, Energy Drink:3",
                 "Lens-Maker's Glasses:10, Soldier's Syringe:10, AtG Missile Mk. 1:1, Ukulele:1",
                 "Tougher Times:10, Repulsion Armor Plate:5, Dio's Best Friend:3, Cautious Slug:5, Bustling Fungus:5"
@@ -31,7 +31,7 @@ namespace Tweaks.DebugStuff
             for (int i = 0; i < enabled.Length; i++)
             {
                 string name = "Loadout " + (i + 1);
-                enabled[i] = ModConfig.BindBool(Section, name + " Enabled", false,
+                enabled[i] = ModConfig.BindBool(Section, name + " Enabled", true,
                     "Give each player this loadout once per run. Enabled loadouts combine.");
                 items[i] = ModConfig.Bind(Section, name + " Items", defaults[i],
                     purposes[i] + ". Comma-separated Item:Count entries. Use item names or internal names. Example: Mocha:40, Feather:5.");

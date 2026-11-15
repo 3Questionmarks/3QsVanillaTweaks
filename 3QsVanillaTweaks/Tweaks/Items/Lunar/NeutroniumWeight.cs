@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
 using RoR2;
+using RoR2.UI.LogBook;
 using UnityEngine;
 using UnityEngine.Networking;
 using R = Tweaks.Items.Uncommon.UncommonConfig;
@@ -22,31 +23,28 @@ namespace Tweaks.Items.Lunar
         static MethodInfo heldOnEnable, destroyAttachment;
         static readonly string[] stats = { "Damage", "Attack Speed", "Movement Speed", "Maximum Health", "Maximum Shield", "Regeneration", "Armour", "Critical Chance", "Jump Power", "Acceleration" };
         static readonly string[] properties = { "damage", "attackSpeed", "moveSpeed", "maxHealth", "maxShield", "regen", "armor", "crit", "jumpPower", "acceleration" };
-        static void HideConsumedLogbookEntry(ItemDef __0, ref bool __result)
-        {
-            if (consumed && __0 == consumed)
-                __result = false;
-        }
         internal static void Init()
         {
             U.Ensure(); c = new R("Neutronium Weight", "TransferDebuffOnHit", true, "Lunar");
             c.B("Rework", true, "Replace transfers on hit/death with a held stat penalty and a permanent consumed-item bonus when removed. Vanilla: false.");
             c.B("Show Held Debuff Effect", false, "Show the native debuff icon and visual/audio effect continuously while holding the reworked item. Cosmetic only; stat penalties apply regardless. Vanilla: combat only.");
             for (int i = 0; i < stats.Length; i++) c.Pair(stats[i] + " Reduction (%)", i < 3 ? 20 : 0, i < 3 ? 10 : 0, "Held stat reduction. Rework default: 20% +10% for damage/attack speed/movement speed; other stats 0%.");
-            c.N("Stats Gained On Removal (%)", 50, "Consumed-item stat bonus as a percentage of the held penalty: default 10% +5% per stack for the three affected stats.");
+            c.N("Stats Gained On Removal (%)", 50, "Consumed-item stat bonus as a percentage of the configured reduction: default 10% +5% per stack for the three affected stats.");
             c.N("Maximum Stat Reduction (%)", 99, "Cap on held penalties, to keep maximum health and movement above zero.", 0, 99.99f);
             if (c.Enabled.Value)
             {
                 consumed = ScriptableObject.CreateInstance<ItemDef>(); consumed.name = "ThreeQsNeutroniumWeightConsumed";
                 consumed.nameToken = "3QS_NEUTRONIUM_CONSUMED_NAME"; consumed.pickupToken = "3QS_NEUTRONIUM_CONSUMED_PICKUP"; consumed.descriptionToken = "3QS_NEUTRONIUM_CONSUMED_DESC";
-                consumed.loreToken = "3QS_NEUTRONIUM_CONSUMED_LORE";
-                var tier = ScriptableObject.CreateInstance<ItemTierDef>(); tier.name = "ThreeQsNeutroniumConsumedNoTier"; tier.tier = ItemTier.NoTier; consumed._itemTierDef = tier;
+                consumed.loreToken = string.Empty;
+                // Match Delicate Watch (Broken): NoTier with no ItemTierDef.
+#pragma warning disable CS0618
+                consumed.deprecatedTier = ItemTier.NoTier;
+#pragma warning restore CS0618
                 consumed.canRemove = false; consumed.isConsumed = true; consumed.hidden = false;
                 consumed.tags = new[] { ItemTag.AIBlacklist, ItemTag.WorldUnique };
                 R2API.ContentAddition.AddItemDef(consumed);
-                U.Harmony.Patch(
-                    A.Method(typeof(RoR2.UI.LogBook.LogBookController), "CanSelectItemEntry"),
-                    postfix: new HarmonyMethod(typeof(NeutroniumWeight), nameof(HideConsumedLogbookEntry)));
+                U.Harmony.Patch(A.Method(typeof(LogBookController), "BuildPickupEntries"),
+                    postfix: new HarmonyMethod(typeof(NeutroniumWeight), nameof(HideReleasedLogbookEntry)));
                 c.Suppress("RoR2.GlobalEventManager", "ProcessHitEnemy", () => c.B("Rework"));
                 c.Suppress("RoR2.GlobalEventManager", "HandleCharacterDeath", () => c.B("Rework"));
                 U.Harmony.Patch(A.Method(typeof(Inventory), "GiveItemPermanent", new[] { typeof(ItemIndex), typeof(int) }), prefix: new HarmonyMethod(typeof(NeutroniumWeight), nameof(RemoveBefore)), postfix: new HarmonyMethod(typeof(NeutroniumWeight), nameof(RemoveAfter)));
@@ -71,10 +69,8 @@ namespace Tweaks.Items.Lunar
                 vanillaDescription = Language.GetString(original.descriptionToken);
                 if (consumed)
                 {
-                    consumed._itemTierDef = ItemTierCatalog.GetItemTierDef(ItemTier.NoTier);
                     foreach (string fieldName in new[] { "pickupIconSprite", "pickupIconSpriteReference", "pickupModelPrefab", "pickupModelReference" }) { var field = A.Field(typeof(ItemDef), fieldName); field?.SetValue(consumed, field.GetValue(original)); }
                     var pickup = PickupCatalog.GetPickupDef(PickupCatalog.FindPickupIndex(consumed.itemIndex)); var source = PickupCatalog.GetPickupDef(PickupCatalog.FindPickupIndex(original.itemIndex));
-                    if (pickup != null) pickup.itemTier = ItemTier.NoTier;
                     if (pickup != null && source != null) foreach (string fieldName in new[] { "iconSprite", "iconSpriteReference", "iconTexture", "displayPrefab", "displayPrefabReference" }) { var field = A.Field(typeof(PickupDef), fieldName); field?.SetValue(pickup, field.GetValue(source)); }
                     RecolourIcon(consumed);
                 }
@@ -84,7 +80,16 @@ namespace Tweaks.Items.Lunar
             S.Text("3QS_NEUTRONIUM_CONSUMED_DESC", () => BonusDescription());
             Tweaks.ModCompatibility.LookingGlassStatRegistry.RegisterItem(() => consumed ? consumed.itemIndex : ItemIndex.None,
                 (master, n, text) => ReleasedStats(n), () => Reworked);
+            c.ShowStat = key => c.B("Rework") && key.EndsWith(" Reduction (%)", StringComparison.Ordinal);
+            c.StatValue = (key, count, value) => c.B("Rework") && key.EndsWith(" Reduction (%)", StringComparison.Ordinal)
+                ? Mathf.Min(c.F("Maximum Stat Reduction (%)"),
+                    DiminishingPercent(c.F(key), c.F(key + " Per Stack"), count)) : value;
             c.Text(() => c.B("Rework") ? StatDescription(false) + " " + StatDescription(true, true) : vanillaDescription, () => c.B("Rework") ? "<style=cIsHealth>Reduce stats while held.</style> Removing it permanently increases stats." : "Reduces stats in combat. Transfers to enemies on hit.");
+        }
+        static void HideReleasedLogbookEntry(ref Entry[] __result)
+        {
+            if (__result != null && Array.Exists(__result, entry => entry?.nameToken == consumed.nameToken))
+                __result = Array.FindAll(__result, entry => entry?.nameToken != consumed.nameToken);
         }
         static string BonusDescription()
         {
@@ -111,7 +116,7 @@ namespace Tweaks.Items.Lunar
                     string[] names = g.Select(s => s.ToLowerInvariant()).ToArray();
                     string list = names.Length < 2 ? names[0] : string.Join(", ", names.Take(names.Length - 1)) + " and " + names.Last();
                     string colour = bonus ? "cIsUtility" : "cIsHealth";
-                    return (removal ? "Removing this item permanently increases " : bonus ? "Increase " : "Reduce ") + list + " by <style=" + colour + ">" + g.Key.First.ToString("0.##") + "%</style>" + (g.Key.Extra == 0 ? "" : " <style=cStack>(+" + g.Key.Extra.ToString("0.##") + "% per stack)</style>") + ".";
+                    return (removal ? "Removing this item permanently increases " : bonus ? "Increase " : "Reduce ") + list + " by <style=" + colour + ">" + g.Key.First.ToString("0.##") + "%</style>" + (g.Key.Extra == 0 ? "" : bonus ? " <style=cStack>(+" + g.Key.Extra.ToString("0.##") + "% per stack)</style>" : " <style=cStack>(diminishing with additional stacks)</style>") + ".";
                 }));
         }
         static bool Reworked => c.Active && c.B("Rework");
@@ -240,10 +245,19 @@ namespace Tweaks.Items.Lunar
             for (int i = 0; i < stats.Length; i++)
             {
                 if ((i == 3 || i == 4) != capacities) continue;
-                float loss = Mathf.Min(c.F("Maximum Stat Reduction (%)"), c.Total(stats[i] + " Reduction (%)", held));
+                string key = stats[i] + " Reduction (%)";
+                float loss = Mathf.Min(c.F("Maximum Stat Reduction (%)"), DiminishingPercent(c.F(key), c.F(key + " Per Stack"), held));
                 float gain = c.Total(stats[i] + " Reduction (%)", released) * c.F("Stats Gained On Removal (%)") / 100;
                 U.Scale(body, properties[i], -loss); U.Scale(body, properties[i], gain);
             }
+        }
+        static float DiminishingPercent(float first, float extra, int count)
+        {
+            if (count <= 0) return 0f;
+            double a = Math.Max(0d, Math.Min(99.99d, first));
+            double b = Math.Max(0d, Math.Min(99.99d, extra));
+            double odds = a / (100d - a) + (count - 1d) * b / (100d - b);
+            return (float)(100d * odds / (1d + odds));
         }
         static void Stats(CharacterBody body) => Apply(body, false);
         static void Capacities(CharacterBody body) => Apply(body, true);

@@ -22,7 +22,22 @@ namespace Tweaks.Items.Lunar
             c.Number("Maximum Healing Per Second (%)", 10, "Maximum health restored per second with one item.");
             c.Number("Healing Rate Divisor Per Extra Stack", 1, "Each extra stack adds this much to the healing-rate divisor. Vanilla: maximum rate divided by item count.");
             c.Number("Healing Interval", .2f, "Seconds between healing ticks.");
-            c.ColouredText(@"Can heal for a maximum of\s+[\d.,]+%", () => "Heal " + c.Values.V("Healing Increase (%)", "%", "cIsHealing") + " more. <style=cIsHealth>ALL healing is applied over time</style>. Can heal for a maximum of " + c.Values.F("Maximum Healing Per Second (%)").ToString("0.##") + "% of your health per second." + (c.Values.F("Healing Rate Divisor Per Extra Stack") == 0 ? "" : " Each additional stack <style=cIsHealth>reduces this rate by " + (100f - 100f / (1 + c.Values.F("Healing Rate Divisor Per Extra Stack"))).ToString("0.##") + "%</style>."));
+            Tweaks.ModCompatibility.LookingGlass.RegisterFullDescription(c.Values.Item.itemIndex);
+            c.ColouredText(@"Can heal for a maximum of\s+[\d.,]+%", () =>
+            {
+                bool active = c.Values.Active;
+                float increase = active ? c.Values.F("Healing Increase (%)") : 100f;
+                float perStack = active ? c.Values.F("Healing Increase (%) Per Stack") : 100f;
+                float maximum = active ? c.Values.F("Maximum Healing Per Second (%)") : 10f;
+                float divisor = active ? c.Values.F("Healing Rate Divisor Per Extra Stack") : 1f;
+                string healing = "<style=cIsHealing>" + increase.ToString("0.##") + "%</style>" +
+                    (perStack == 0f ? "" : " <style=cStack>(+" + perStack.ToString("0.##") + "% per stack)</style>");
+                return "Heal " + healing + " more. <style=cIsHealth>All healing is applied over time</style>. Can heal for a maximum of " +
+                    maximum.ToString("0.##") + "%" +
+                    (divisor == 0f ? "" : " <style=cStack>(-" +
+                    (100f - 100f / (1f + divisor)).ToString("0.##") + "% per stack)</style>") +
+                    " of your health per second.";
+            }, showWhenDisabled: true);
             if (!c.Values.Enabled.Value) return;
             U.Harmony.Patch(A.Method(typeof(HealthComponent), "Heal", new[] { typeof(float), typeof(ProcChainMask), typeof(bool) }), transpiler: new HarmonyMethod(typeof(Corpsebloom), nameof(Healing)));
             var type = typeof(CharacterBody).Assembly.GetType(Repeat);
