@@ -13,7 +13,7 @@
 
 | Objective | Temporary Lunar Coins |
 | --- | ---: |
-| Defeat a boss | 3 |
+| Defeat a boss encounter | 3 |
 | Complete a stage after collecting all its items | 2 |
 | Gain 1 Karma | 5 |
 

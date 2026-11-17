@@ -53,3 +53,31 @@
 - The ambient enemy level cap is 9,999 (vanilla 99). Enemies keep their current health when they level up by default.
 - The configurable enemy item blacklist applies to rolls such as Evolution, Void Fields and Simulacrum. It adds Tougher Times, Safer Spaces, Shuriken, Shipping Request Form, Regenerating Scrap, Kinetic Dampener, Unstable Tesla Coil, N'kuhana's Opinion, Frost Relic, Spare Drone Parts and Empathy Cores to existing restrictions.
 
+# Enemy Difficulty
+
+- Difficulty rises over time 1.2× faster than the selected difficulty normally would. Stage-to-stage scaling is unchanged.
+- Enemies gain extra maximum health and damage, applied in 10% steps:
+
+| Enemy type | Health | Damage |
+| --- | ---: | ---: |
+| Regular enemies | +30% | +10% |
+| Bosses (champions, including roaming ones such as Stone Titans) | +40% | +10% |
+| Major bosses | +60% | +10% |
+
+- Major bosses are Mithrix, Voidling, False Son, Solus Wing, Solus Heart, the Twisted Scavengers, DLC 4 Secret Boss and the Anima Harvester. The list is configurable by body name.
+
+# Enemy Gold
+
+- Gold dropped by enemies when killed is reduced, making gold-generating items relatively stronger.
+- Enemy gold stays at the difficulty you entered the stage with, like chest prices, so staying longer no longer outpaces chest prices.
+- Enemy gold falls behind chest prices as difficulty rises.
+- Enemy gold is divided by the enemy credit multiplier, so the extra enemies it spawns do not add extra gold.
+- All enemy gold is multiplied by 0.85.
+- Gold from items, barrels and shrines is unaffected.
+
+| Difficulty | Enemy gold vs vanilla (before the stage-entry lock) |
+| --- | ---: |
+| 1–3 (early stages) | ~71% |
+| 6 | ~60% |
+| 12 | ~47% |
+| 24 | ~32% |

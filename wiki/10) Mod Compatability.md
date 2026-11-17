@@ -3,7 +3,7 @@
 - **Moffein's Heretic:** preserves its movement-speed and double-jump passive wording alongside Nevermore. When installed, compatibility overrides default to 110 HP, 12 damage and 1 HP regeneration.
 - **RegisterCommandChest:** uses its distinct Command Chest appearance on the Iron stages when installed.
 - **LoopVariantConfig:** takes over overlapping stage-variant mixing and first-stage rebalancing automatically.
-- **LookingGlass:** displays supported modified item and skill statistics, including current Watch damage, its break threshold and accumulated Infusion health.
+- **LookingGlass:** displays supported modified item and skill statistics.
 - **ZetAspects:** aspect crafting uses its item/equipment mode. Wake of Vultures' combat balance remains controlled by ZetAspects.
 - **RetroactiveMacro** handles reopening previously closed multishops when installed. With its Sale Star changes active, a successful chest reopen spends one of this mod's configured uses for the stage. RetroactiveMacro determines eligible chests and rewards.
 - **ReduceRecycler** keeps its normal stage behaviour alongside this mod's paused-timer Recycler cooldown.

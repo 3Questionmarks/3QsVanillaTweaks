@@ -79,6 +79,7 @@
 - You must pay Lunar Coins to break a crystal before using its interactable. The unlock price is separate from the regular use fee, recipe or item cost.
 - Unlock recipients default to **Everyone** currently in the game. The alternatives are **Host** and **Buyer**. Progress that persists across runs follows the host.
 - **Reset Unlocks** defaults to **EveryRunWin**, which clears unlock progress on a victory or **Fate Unknown** result. Other options reset it every visit, every run, every game launch, or keep it permanently. Game-launch and permanent unlocks are separated by game mode by default. Separating them by survivor is optional and off by default. In theory, you could bump up the unlock prices to something fairly high for each interactable and have them never reset as a form of perminant meta-progression
+- While locked, Lunar Shop slots are empty and roll an item when unlocked. Locked 3D Printers, Cauldrons and Hallowed Pools show a hidden **?** item until unlocked, and locked Lunar Seers do not show their stage. This can be turned off with **Hide Locked Contents**.
 
 | Interactable slots | Default unlock cost in Lunar Coins |
 | --- | --- |

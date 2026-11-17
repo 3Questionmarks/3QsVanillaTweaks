@@ -7,7 +7,7 @@
 - Uses Primordial Teleporters on normal stages from stage 6 onwards, allowing a choice between the Moon and continuing to loop.
 - Avoids stage families visited in the current play session. Falls back to the available stages if every eligible destination was visited. 
 - Guarantees a selected Newt Altar location on supported stages. If the selected location replaces a normally permanent altar, that extra altar has a 25% chance to remain.
-- Guaranteed Legendary Chests award an item for each player.
+- Guaranteed Legendary Chests award an item for each player. Reopening them (e.g. Sale Star with RetroactiveMacro) gives the normal amount, not one per player.
 
 # Distant Roost
 
