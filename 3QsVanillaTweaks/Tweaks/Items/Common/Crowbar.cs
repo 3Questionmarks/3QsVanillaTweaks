@@ -39,6 +39,22 @@ namespace Tweaks.Items.Common
 
         [ThreadStatic]
         static Scope scope;
+        // TakeDamageProcess runs for every hit; reuse scope objects instead of allocating one per hit.
+        [ThreadStatic]
+        static Stack<Scope> pool;
+        static Scope Rent() => pool != null && pool.Count > 0 ? pool.Pop() : new Scope();
+        static void Return(Scope s)
+        {
+            s.Previous = null;
+            s.Target = null;
+            s.Info = null;
+            s.Master = null;
+            s.Count = 0;
+            s.Eligible = false;
+            s.BeforeTotal = 0;
+            s.AcceptedDamage = false;
+            (pool ?? (pool = new Stack<Scope>())).Push(s);
+        }
         static ConditionalWeakTable<HealthComponent, HashSet<CharacterMaster>> hits = new ConditionalWeakTable<HealthComponent, HashSet<CharacterMaster>>();
         internal static void Init()
         {
@@ -63,13 +79,11 @@ namespace Tweaks.Items.Common
 
         static void Before(HealthComponent __instance, DamageInfo damageInfo, out Scope __state)
         {
-            __state = new Scope
-            {
-                Previous = scope,
-                Target = __instance,
-                BeforeTotal = __instance.health + __instance.shield + __instance.barrier,
-                Info = damageInfo
-            };
+            __state = Rent();
+            __state.Previous = scope;
+            __state.Target = __instance;
+            __state.BeforeTotal = __instance.health + __instance.shield + __instance.barrier;
+            __state.Info = damageInfo;
             scope = __state;
             if (!S.Active(enabled) || !NetworkServer.active || damageInfo.rejected || damageInfo.damage <= 0 || !damageInfo.attacker)
                 return;
@@ -92,6 +106,8 @@ namespace Tweaks.Items.Common
         static Exception Finish(Scope __state, Exception __exception)
         {
             scope = __state?.Previous;
+            if (__state != null)
+                Return(__state);
             return __exception;
         }
 

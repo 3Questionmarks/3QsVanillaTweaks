@@ -14,11 +14,13 @@ namespace Tweaks.Stages.Stage4
 {
     internal static class GuaranteedLegendaryChests
     {
-        private static ConfigEntry<bool> enabled;
+        private static ConfigEntry<bool> enabled, reopensPerPlayer;
         private static ConfigEntry<int> itemsPerPlayer;
         private static readonly HashSet<ChestBehavior> FixedChests = new HashSet<ChestBehavior>();
         private static readonly HashSet<ChestBehavior> DirectorChests = new HashSet<ChestBehavior>();
         private static readonly HashSet<ChestBehavior> ReportedChests = new HashSet<ChestBehavior>();
+        // Chests that have already dropped once; later drops are reopens (e.g. RetroactiveMacro's Sale Star).
+        private static readonly HashSet<ChestBehavior> OpenedChests = new HashSet<ChestBehavior>();
         private static readonly Dictionary<int, List<ChestBehavior>> SceneChests = new Dictionary<int, List<ChestBehavior>>();
 
         internal static void Init()
@@ -27,6 +29,8 @@ namespace Tweaks.Stages.Stage4
             enabled = ModConfig.BindBool(section, "Enabled", true, "Guaranteed legendary chests drop an item for each player. Random legendary chests are unaffected.");
             itemsPerPlayer = ModConfig.Bind(section, "Items Per Player", 1,
                 new ConfigDescription("Items per player from a guaranteed legendary chest. Sale Star adds its usual bonus drops.", new AcceptableValueRange<int>(1, 100)));
+            reopensPerPlayer = ModConfig.BindBool(section, "Reopens Drop Per Player", false,
+                "Also give the per-player items when a guaranteed legendary chest is reopened, such as by Sale Star with RetroactiveMacro. When off, a reopen drops its normal amount.");
             SceneManager.sceneLoaded += (scene, mode) => CaptureSceneChests(scene);
             SceneDirector.onPrePopulateSceneServer += director =>
             {
@@ -43,8 +47,9 @@ namespace Tweaks.Stages.Stage4
                 SceneChests.Remove(scene.handle);
                 FixedChests.RemoveWhere(chest => !chest || chest.gameObject.scene == scene);
                 DirectorChests.RemoveWhere(chest => !chest || chest.gameObject.scene == scene);
+                OpenedChests.RemoveWhere(chest => !chest || chest.gameObject.scene == scene);
             };
-            Run.onRunDestroyGlobal += run => { FixedChests.Clear(); DirectorChests.Clear(); ReportedChests.Clear(); SceneChests.Clear(); };
+            Run.onRunDestroyGlobal += run => { FixedChests.Clear(); DirectorChests.Clear(); ReportedChests.Clear(); OpenedChests.Clear(); SceneChests.Clear(); };
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Stages.GuaranteedLegendaryChests");
             harmony.Patch(AccessTools.Method(typeof(ChestBehavior), "ItemDrop"),
                 prefix: new HarmonyMethod(typeof(GuaranteedLegendaryChests), nameof(BeforeDrop)),
@@ -109,6 +114,8 @@ namespace Tweaks.Stages.Stage4
                     ", players=" + RewardPlayerCount() +
                     ", base drops=" + __instance.dropCount + ".");
             if (!NetworkServer.active || !Run.instance || !ModConfig.Get(enabled) || !FixedChests.Contains(__instance) || __instance.dropCount < 1) return;
+            // Only the first drop is the chest's own reward; a reopen keeps its normal count unless configured.
+            if (!OpenedChests.Add(__instance) && !ModConfig.Get(reopensPerPlayer)) return;
             int players = RewardPlayerCount();
             __state = __instance.dropCount;
             // Vanilla has already added Sale Star's drops to dropCount at purchase.

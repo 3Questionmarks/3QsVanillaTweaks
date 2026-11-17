@@ -17,6 +17,8 @@ namespace Tweaks.Directors
             var type=typeof(CombatDirector).GetNestedType("DirectorMoneyWave",System.Reflection.BindingFlags.NonPublic);
             new Harmony("3Qs.EnemyCredits").Patch(AccessTools.Method(type,"Update"),postfix:new HarmonyMethod(typeof(EnemyCredits),nameof(After)));
         }
+        // Multiplier currently applied to combat director income; 1 when this tweak is off or not loaded.
+        internal static float IncomeMultiplier => enabled != null && C.Get(enabled) ? C.Get(multiplier) : 1f;
         static void After(ref float __result) { if(C.Get(enabled)) __result *= C.Get(multiplier); }
     }
 }

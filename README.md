@@ -1,10 +1,10 @@
 # 3QsVanillaTweaks
 
-A configurable collection of balance changes and quality-of-life improvements for Risk of Rain 2. Give stages consistent features, make more survivor skills and items useful (and some small nerfs to others), and reduce some of the annoyances of multiplayer.
+A configurable collection of balance changes and quality-of-life improvements for Risk of Rain 2. Give stages consistent features, make more survivor skills and items useful (and some small nerfs to others), and reduce some of the annoyances of multiplayer. The main design philosophy in general is that buffs are more fun that nerfs so I have tended towards buffing underperforming things, rather than nerfing over performing this. As an example, weaker characters have had buffs to be more inline with DLC characters, rather than nerfing the DLC characters alot.
 
 Basically everything has its own config toggles and settings. The defaults are intended to be balanced-ish but I'm not the best player so my opinions on what is good or bad/need changing is going to differ to other peoples. You can edit the setting to suit your idea of balance, or revert changes to vanilla. Gameplay settings follow the host's configuration (Hopefully).
 
-**Current version: 0.5.0**
+**Current version: 0.5.2**
 
 ## What's new in 0.5.0?
 
@@ -29,7 +29,7 @@ AI was NOT used for ideas, planning, writing text descriptions for anything, or 
 
 AI was ONLY used for the writing of code and debugging by reading error logs and identifying problems with the code I wrote. All code that that the AI produced was read fully and understood by me before actual implementation - nothing was blindly copy and pasted.
 
-I'm not the most knowledgeable about coding, ontop of the reasorces online that I could find for this game where fairly limited - I've tried my best to code myself and only rely on AI to help with potentual methods for implementing features, but AI has written some of the code for this mod that I have explisitally tested, and tried to understand.
+I'm not the most knowledgeable about coding, ontop of the reasorces online that I could find for this game where fairly limited - I've tried my best to code myself and only rely on AI to help with potentual methods for implementing features, but AI has written a fair amount of the code for this mod that I have explisitally tested, and tried to understand.
 
 If you do not want to use this mod because of this fact, then I fully respect your decision and have no issues with it.
 

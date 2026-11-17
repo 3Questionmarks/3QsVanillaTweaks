@@ -226,7 +226,9 @@ namespace Tweaks.Items.Uncommon
         static readonly ConditionalWeakTable<CharacterMaster, Setup> configured = new ConditionalWeakTable<CharacterMaster, Setup>();
         static void Tick(CharacterBody b)
         {
-            if (!c.Active || !b.master || !b.name.StartsWith("SquidTurret", StringComparison.Ordinal) || !b.master.minionOwnership || !b.master.minionOwnership.ownerMaster)
+            // Runs for every body each physics tick: check ownership before reading the
+            // GameObject name, which allocates a new string on every access.
+            if (!c.Active || !b.master || !b.master.minionOwnership || !b.master.minionOwnership.ownerMaster || !b.name.StartsWith("SquidTurret", StringComparison.Ordinal))
                 return;
             if (!configured.TryGetValue(b.master, out var marker))
             {
@@ -235,7 +237,9 @@ namespace Tweaks.Items.Uncommon
 
             if (configured.TryGetValue(b.master, out var setup))
             {
-                b.inventory.ResetItemPermanent(RoR2Content.Items.BoostAttackSpeed);
+                // Only touch the networked inventory when there is something to remove.
+                if (b.inventory.GetItemCountPermanent(RoR2Content.Items.BoostAttackSpeed) > 0)
+                    b.inventory.ResetItemPermanent(RoR2Content.Items.BoostAttackSpeed);
                 int desired = c.B("Strict Lifetime") ? 0 : Mathf.Max(1, Mathf.RoundToInt(c.Total("Duration", setup.Stacks)));
                 int actual = b.inventory.GetItemCountPermanent(RoR2Content.Items.HealthDecay);
                 if (actual != desired)

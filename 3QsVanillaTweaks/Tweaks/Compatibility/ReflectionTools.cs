@@ -9,18 +9,28 @@ namespace ThreeQsVanillaTweaks
     internal static class ReflectionTools
     {
         private const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+        // Field and property lookups are also used from per-tick and per-hit code.
+        // Results, including failed lookups, are cached per type and name.
+        private static readonly Dictionary<(Type, string), FieldInfo> fields = new Dictionary<(Type, string), FieldInfo>();
+        private static readonly Dictionary<(Type, string), PropertyInfo> properties = new Dictionary<(Type, string), PropertyInfo>();
         internal static FieldInfo Field(Type type, string name)
         {
-            for (; type != null; type = type.BaseType) { FieldInfo field = type.GetField(name, Declared); if (field != null) return field; }
-            return null;
+            if (type == null || name == null) return null;
+            if (fields.TryGetValue((type, name), out FieldInfo cached)) return cached;
+            FieldInfo result = null;
+            for (Type current = type; current != null && result == null; current = current.BaseType) result = current.GetField(name, Declared);
+            fields[(type, name)] = result;
+            return result;
         }
         internal static PropertyInfo Property(Type type, string name)
         {
-            for (; type != null; type = type.BaseType)
-            {
-                PropertyInfo property = type.GetProperties(Declared).FirstOrDefault(p => p.Name == name); if (property != null) return property;
-            }
-            return null;
+            if (type == null || name == null) return null;
+            if (properties.TryGetValue((type, name), out PropertyInfo cached)) return cached;
+            PropertyInfo result = null;
+            for (Type current = type; current != null && result == null; current = current.BaseType)
+                result = current.GetProperties(Declared).FirstOrDefault(p => p.Name == name);
+            properties[(type, name)] = result;
+            return result;
         }
         internal static MethodInfo Method(Type type, string name, Type[] parameters = null, Type[] generics = null)
         {

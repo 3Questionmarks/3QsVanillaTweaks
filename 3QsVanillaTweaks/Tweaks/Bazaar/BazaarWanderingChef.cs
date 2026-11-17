@@ -83,7 +83,8 @@ namespace Tweaks.Bazaar
             try
             {
                 var prefab = PrefabAPI.InstantiateClone(WanderingChef.MenuPrefab, "3Qs_BazaarChefMenu", true);
-                prefab.AddComponent<PickupIndexNetworker>();
+                // The menu syncs its recipe itself. A PickupIndexNetworker here makes LookingGlass
+                // treat the menu as a potential, skip sorting it and remap clicks with a stale map.
                 prefab.AddComponent<RestrictedMenu>();
                 menuPrefab = prefab;
 
@@ -247,17 +248,32 @@ namespace Tweaks.Bazaar
             internal readonly Dictionary<CharacterMaster, PickupIndex> Recipes = new Dictionary<CharacterMaster, PickupIndex>();
         }
 
-        private sealed class RestrictedMenu : MonoBehaviour
+        private sealed class RestrictedMenu : NetworkBehaviour
         {
+            private PickupIndex recipe = PickupIndex.none;
+
             internal PickupIndex Recipe
             {
-                get => GetComponent<PickupIndexNetworker>().pickupState.pickupIndex;
+                get => recipe;
                 set
                 {
-                    var networker = GetComponent<PickupIndexNetworker>();
-                    if (networker.pickupState.pickupIndex != value)
-                        networker.NetworkpickupState = new UniquePickup(value);
+                    if (recipe == value) return;
+                    recipe = value;
+                    if (NetworkServer.active) SetDirtyBit(1u);
                 }
+            }
+
+            public override bool OnSerialize(NetworkWriter writer, bool initialState)
+            {
+                if (!initialState) writer.WritePackedUInt32(syncVarDirtyBits);
+                if (!initialState && syncVarDirtyBits == 0u) return false;
+                writer.Write(recipe);
+                return true;
+            }
+
+            public override void OnDeserialize(NetworkReader reader, bool initialState)
+            {
+                if (initialState || reader.ReadPackedUInt32() != 0u) recipe = reader.ReadPickupIndex();
             }
         }
 

@@ -131,6 +131,7 @@ namespace Tweaks.Bazaar
             Stage.onStageStartGlobal += ClearVisit;
 
             var harmony = new Harmony("3Questionmarks.3QsVanillaTweaks.Bazaar.AlternateMode");
+            BindLockedContents(harmony);
             harmony.Patch(A.Method(typeof(Interactor), "FindBestInteractableObject",
                     new[] { typeof(Ray), typeof(float), typeof(Vector3), typeof(float) }),
                 prefix: new HarmonyMethod(typeof(BazaarAlternateMode), nameof(BeginInteractionSearch)),
@@ -477,6 +478,7 @@ namespace Tweaks.Bazaar
             crystals.Clear();
             movedObjects.Clear();
             visitUnlocks.Clear();
+            lockedTerminals.Clear();
             // Network state may already have arrived for a client loading this visit.
             if (NetworkServer.active || !stage || !BazaarSpawnHelper.InBazaar())
             {
@@ -520,6 +522,8 @@ namespace Tweaks.Bazaar
             NetworkServer.Spawn(crystal);
             DebugStuff.InteractablePlacementEditor.Link(instance, crystal);
             PublishGate(gate);
+            HideContents(gate);
+            RefreshSeers();
         }
 
         private static Gate FindGate(Component interaction)
@@ -675,6 +679,8 @@ namespace Tweaks.Bazaar
             if (purchase.cost > 0) buyer.DeductLunarCoins((uint)purchase.cost);
             GrantUnlock(gate.Slot, buyer);
             PublishGate(gate);
+            RevealContents(gate);
+            RefreshSeers();
             PublishCrystalBreak(gate, viewers);
             Newt.CommentOnUnlock();
             Log.Info($"Bazaar unlocked {gate.Slot.Name} for {purchase.cost} lunar coins.");

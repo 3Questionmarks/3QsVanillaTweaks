@@ -91,12 +91,26 @@ namespace Tweaks.Interactables
             var scene = Stage.instance.sceneDef;
             int currentProgress = routeRun == Run.instance ? progress : 0;
             int tier = scene.stageOrder;
-            // Hidden realms have no normal tier: use the main-stage destination they would return to.
-            if (tier <= 0 && Run.instance.nextStageScene)
-                tier = Run.instance.nextStageScene.stageOrder == 1 ? 5 : Run.instance.nextStageScene.stageOrder - 1;
+            var next = Run.instance.nextStageScene;
+            // Hidden realms such as the Bazaar are not part of the stage order. Use the stage
+            // just completed, derived from the main stage the run returns to.
+            bool hidden = IsHiddenRealm(scene) && next;
+            if (hidden)
+                tier = next.stageOrder == 1 ? 5 : next.stageOrder - 1;
             string destination = SelectDestination(C.Get(fullPath), C.Get(lateMeridian), tier,
                 currentProgress, scene.baseSceneName, Run.instance.loopClearCount > 0 && Run.instance.stageClearCount > 5);
-            if (destination == null) return true;
+            if (destination == null)
+            {
+                // Vanilla chooses the alternate destination from the current scene's stageOrder,
+                // which is not a stage tier in a hidden realm. Choose it from the next stage instead.
+                if (!hidden || !__instance.isAlternatePath) return true;
+                var alternate = AlternateDestination(__instance, next.stageOrder);
+                if (!alternate) return true;
+                // Use the native method so other loop-variant patches still apply.
+                result = loopedStage != null ? (SceneDef)loopedStage.Invoke(__instance, new object[] { alternate }) : alternate;
+                __result = true;
+                return false;
+            }
             var target = SceneCatalog.FindSceneDef(destination);
             if (!target)
             {
@@ -105,6 +119,22 @@ namespace Tweaks.Interactables
             }
             // Resolve directly so both preload and actual travel agree; don't mutate shared prefabs or Run.nextStageScene.
             result = target; __result = true; return false;
+        }
+        private static readonly System.Reflection.MethodInfo loopedStage =
+            AccessTools.Method(typeof(SceneExitController), "GetLoopedStageOrDefault", new[] { typeof(SceneDef) });
+        private static bool IsHiddenRealm(SceneDef scene) => scene.sceneType != SceneType.Stage || scene.stageOrder <= 0;
+        // Mirrors SceneExitController.TryGetAlternateScene for a given next-stage tier.
+        private static SceneDef AlternateDestination(SceneExitController exit, int tier)
+        {
+            switch (tier)
+            {
+                case 1: return exit.tier1AlternateDestinationScene;
+                case 2: return exit.tier2AlternateDestinationScene;
+                case 3: return exit.tier3AlternateDestinationScene;
+                case 4: return exit.tier4AlternateDestinationScene;
+                case 5: return exit.tier5AlternateDestinationScene;
+                default: return null;
+            }
         }
         private static void BeforeBegin(SceneExitController __instance, out bool __state)
         {

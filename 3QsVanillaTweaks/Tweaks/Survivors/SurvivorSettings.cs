@@ -126,6 +126,96 @@ namespace Tweaks.Survivors
             if (TickDescriptions == null) TickDescriptions = C.BindBool("Survivors - 00 General", "Show Damage Per Tick", true,
                 "Show damage per tick and the time between ticks instead of damage per second. Vanilla: False.", true);
         }
+        // Builds a recoloured copy of a skill icon, leaving the shared original sprite untouched.
+        // recolourAll shifts every coloured pixel to targetHue; otherwise only yellow-green hues change.
+        internal static Sprite RecolourIcon(Sprite original, string name, float targetHue, bool recolourAll = false, bool rotate = false)
+        {
+            // Read the atlas through the GPU; sprite vertices and UVs also handle tight or rotated packing.
+            int width = Mathf.RoundToInt(original.rect.width);
+            int height = Mathf.RoundToInt(original.rect.height);
+            int atlasWidth = original.texture.width, atlasHeight = original.texture.height;
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture temporary = null;
+            Texture2D readable = null, texture = null;
+            Sprite sprite = null;
+            try
+            {
+                temporary = RenderTexture.GetTemporary(atlasWidth, atlasHeight,
+                    0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(original.texture, temporary);
+                RenderTexture.active = temporary;
+                readable = new Texture2D(atlasWidth, atlasHeight, TextureFormat.RGBA32, false, false);
+                readable.ReadPixels(new Rect(0, 0, atlasWidth, atlasHeight), 0, 0, false);
+                readable.Apply(false, false);
+                Color32[] source = readable.GetPixels32();
+                Color[] pixels = new Color[width * height];
+                Vector2[] vertices = original.vertices, uv = original.uv;
+                ushort[] triangles = original.triangles;
+                for (int i = 0; i + 2 < triangles.Length; i += 3)
+                {
+                    int a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+                    Vector2 p0 = vertices[a] * original.pixelsPerUnit + original.pivot;
+                    Vector2 p1 = vertices[b] * original.pixelsPerUnit + original.pivot;
+                    Vector2 p2 = vertices[c] * original.pixelsPerUnit + original.pivot;
+                    float denominator = (p1.y - p2.y) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.y - p2.y);
+                    if (Mathf.Abs(denominator) < .0001f) continue;
+                    int minX = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(p0.x, Mathf.Min(p1.x, p2.x))));
+                    int maxX = Mathf.Min(width - 1, Mathf.CeilToInt(Mathf.Max(p0.x, Mathf.Max(p1.x, p2.x))));
+                    int minY = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(p0.y, Mathf.Min(p1.y, p2.y))));
+                    int maxY = Mathf.Min(height - 1, Mathf.CeilToInt(Mathf.Max(p0.y, Mathf.Max(p1.y, p2.y))));
+                    for (int y = minY; y <= maxY; y++)
+                    for (int x = minX; x <= maxX; x++)
+                    {
+                        float px = x + .5f, py = y + .5f;
+                        float w0 = ((p1.y - p2.y) * (px - p2.x) + (p2.x - p1.x) * (py - p2.y)) / denominator;
+                        float w1 = ((p2.y - p0.y) * (px - p2.x) + (p0.x - p2.x) * (py - p2.y)) / denominator;
+                        float w2 = 1f - w0 - w1;
+                        if (w0 < -.0001f || w1 < -.0001f || w2 < -.0001f) continue;
+                        Vector2 sample = uv[a] * w0 + uv[b] * w1 + uv[c] * w2;
+                        int sx = Mathf.Clamp(Mathf.FloorToInt(sample.x * atlasWidth), 0, atlasWidth - 1);
+                        int sy = Mathf.Clamp(Mathf.FloorToInt(sample.y * atlasHeight), 0, atlasHeight - 1);
+                        Color pixel = source[sy * atlasWidth + sx];
+                        Color.RGBToHSV(pixel, out float hue, out float saturation, out float value);
+                        if (pixel.a > 0 && saturation > (recolourAll ? .04f : .2f) && value > (recolourAll ? .03f : .12f)
+                            && (recolourAll || hue >= .12f && hue <= .40f))
+                        {
+                            hue = targetHue;
+                            if (recolourAll) saturation = Mathf.Max(.5f, saturation);
+                            value = Mathf.Min(1f, value * (recolourAll ? 1.25f : 1.12f));
+                            Color changed = Color.HSVToRGB(hue, saturation, value);
+                            changed.a = pixel.a;
+                            pixel = changed;
+                        }
+                        int dx = rotate ? width - 1 - x : x;
+                        int dy = rotate ? height - 1 - y : y;
+                        pixels[dy * width + dx] = pixel;
+                    }
+                }
+                texture = new Texture2D(width, height, TextureFormat.RGBA32, false, false);
+                texture.name = name;
+                texture.filterMode = original.texture.filterMode;
+                texture.wrapMode = TextureWrapMode.Clamp;
+                texture.SetPixels(pixels);
+                texture.Apply(false, true);
+                Vector2 pivot = new Vector2(original.pivot.x / width, original.pivot.y / height);
+                sprite = Sprite.Create(texture, new Rect(0, 0, width, height), pivot,
+                    original.pixelsPerUnit, 0, SpriteMeshType.FullRect);
+                sprite.name = name;
+                return sprite;
+            }
+            catch
+            {
+                if (sprite) UnityEngine.Object.Destroy(sprite);
+                if (texture) UnityEngine.Object.Destroy(texture);
+                throw;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                if (temporary) RenderTexture.ReleaseTemporary(temporary);
+                if (readable) UnityEngine.Object.Destroy(readable);
+            }
+        }
         internal static string Number(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
         internal static ConfigEntry<float> Float(string section, string key, float value, float vanilla, string description, float minimum = 0f) =>
             C.Bind(section, key, value, new ConfigDescription(description + " Vanilla: " + Number(vanilla) + ".", new AcceptableValueRange<float>(minimum, 1000000f)));

@@ -14,13 +14,46 @@ namespace Config
     {
         private const short SnapshotMessage = 181;
         private const short RequestMessage = 182;
-        // UNet strings are limited to 64 KiB. The full item/survivor config is much larger.
-        private const int SnapshotChunkSize = 8192;
+        // Snapshot format version. Peers with a different version ignore each other's snapshots.
+        // Large marker value: it cannot match a snapshot id from the previous message format.
+        private const int SyncProtocol = 0x33510002;
+        // Approximate UTF-8 payload per snapshot message. The full config spans many messages.
+        private const int SnapshotChunkBytes = 8000;
+        // A client asks again only after this long without receiving any snapshot message.
+        private const float RequestRetrySeconds = 10f;
+        // The host ignores repeated requests from one connection within this window.
+        private const float ResendCooldownSeconds = 8f;
+        // Host-side setting changes are batched, e.g. while a Risk of Options slider is dragged.
+        private const float BroadcastDelaySeconds = 0.5f;
+        private const string FullRequest = "full";
         private static int nextSnapshotId;
         private static int receivingSnapshotId = -1;
         private static int lastAppliedSnapshotId = -1;
-        private static string[] receivingChunks;
+        private static List<KeyValuePair<string, string>>[] receivingChunks;
         private static int receivedChunks;
+        private static bool requestedFull, hostAbsentIsDefault, warnedProtocol;
+        private static float broadcastAt = -1f;
+        private static readonly Dictionary<int, (float Time, bool Full)> lastSnapshotSent = new Dictionary<int, (float, bool)>();
+        // Connections whose settings list differs from the host's; they always receive complete snapshots.
+        private static readonly HashSet<int> fullConnections = new HashSet<int>();
+        // Cached per-entry identity and parsed host value, so reads do not rebuild
+        // identifiers or parse host strings on every call.
+        private sealed class EntryInfo
+        {
+            internal string Id;
+            internal bool LocalOnly;
+            internal bool HasHost;
+            internal object HostValue;
+        }
+        private sealed class ReferenceComparer : IEqualityComparer<ConfigEntryBase>
+        {
+            internal static readonly ReferenceComparer Instance = new ReferenceComparer();
+            public bool Equals(ConfigEntryBase x, ConfigEntryBase y) => ReferenceEquals(x, y);
+            public int GetHashCode(ConfigEntryBase obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+        }
+        private static readonly Dictionary<ConfigEntryBase, EntryInfo> entryInfo = new Dictionary<ConfigEntryBase, EntryInfo>(ReferenceComparer.Instance);
+        private static readonly Dictionary<string, EntryInfo> infoById = new Dictionary<string, EntryInfo>();
+        private static int? syncedKeyHash;
         internal static ConfigFile File { get; private set; }
         internal static ConfigFile DebugFile { get; private set; }
         internal static ConfigFile SurvivorStatsFile { get; private set; }
@@ -534,20 +567,40 @@ namespace Config
             if (!initializationFinished && originalDefinitions.TryGetValue(entry.ConfigFile, out var definitions) && !definitions.Contains(entry.Definition))
                 dirtyFiles.Add(entry.ConfigFile);
             string id = Id(entry.Definition);
+            if (!infoById.TryGetValue(id, out EntryInfo info))
+            {
+                info = new EntryInfo { Id = id };
+                infoById.Add(id, info);
+            }
+            entryInfo[entry] = info;
             if (!entries.ContainsKey(id))
             {
                 entries.Add(id, entry);
+                syncedKeyHash = null;
                 entry.SettingChanged += (sender, args) =>
                 {
                     if (!initializationFinished) dirtyFiles.Add(entry.ConfigFile);
-                    if (NetworkServer.active) Broadcast();
-                    if (!UsingHost || localOnly.Contains(id) || ReferenceEquals(entry, useDebugOptions)) NotifyChanged();
+                    if (NetworkServer.active) ScheduleBroadcast();
+                    if (!UsingHost || info.LocalOnly || ReferenceEquals(entry, useDebugOptions)) NotifyChanged();
                 };
             }
-            if (clientSide) localOnly.Add(id);
+            if (clientSide && !info.LocalOnly)
+            {
+                localOnly.Add(id);
+                info.LocalOnly = true;
+                syncedKeyHash = null;
+            }
             return entry;
         }
-        private static bool UsingHost { get { return NetworkClient.active && !NetworkServer.active && received; } }
+        private static bool UsingHost { get { return received && NetworkClient.active && !NetworkServer.active; } }
+        // Entries that were never registered (other config files) map to null.
+        private static EntryInfo Info(ConfigEntryBase entry)
+        {
+            if (entryInfo.TryGetValue(entry, out EntryInfo info)) return info;
+            infoById.TryGetValue(Id(entry.Definition), out info);
+            entryInfo[entry] = info;
+            return info;
+        }
         internal static T Get<T>(ConfigEntry<T> entry)
         {
             if (entry == null) return default(T);
@@ -556,7 +609,8 @@ namespace Config
             {
                 // Keep the stored preference intact. Turning the master switch on
                 // immediately exposes the configured values, including new true defaults.
-                bool enabled = localOnly.Contains(Id(entry.Definition))
+                EntryInfo info = Info(entry);
+                bool enabled = info != null && info.LocalOnly
                     ? useDebugOptions != null && useDebugOptions.Value
                     : DebugOptionsEnabled;
                 if (!enabled) return (T)(object)false;
@@ -567,14 +621,65 @@ namespace Config
         private static T EffectiveValue<T>(ConfigEntry<T> entry)
         {
             if (entry == null) return default(T);
-            string raw;
-            if (UsingHost && !localOnly.Contains(Id(entry.Definition)) && hostValues.TryGetValue(Id(entry.Definition), out raw))
-            {
-                try { return (T)TomlTypeConverter.ConvertToValue(raw, typeof(T)); }
-                catch (Exception e) { ThreeQsVanillaTweaks.Log.Warning("Invalid host config value: " + e.Message); }
-            }
+            if (!UsingHost) return entry.Value;
+            EntryInfo info = Info(entry);
+            if (info != null && !info.LocalOnly && info.HasHost && info.HostValue is T value) return value;
             return entry.Value;
         }
+
+        // Parse the host's values once per received snapshot.
+        // absentIsDefault: the host only sent values that differ from their defaults.
+        private static void ApplyHostValues(bool absentIsDefault)
+        {
+            foreach (EntryInfo info in infoById.Values) { info.HasHost = false; info.HostValue = null; }
+            foreach (var pair in entries)
+            {
+                if (!infoById.TryGetValue(pair.Key, out EntryInfo info) || info.LocalOnly) continue;
+                ConfigEntryBase entry = pair.Value;
+                if (hostValues.TryGetValue(pair.Key, out string raw))
+                {
+                    try
+                    {
+                        info.HostValue = TomlTypeConverter.ConvertToValue(raw, entry.SettingType);
+                        info.HasHost = true;
+                    }
+                    catch (Exception e)
+                    {
+                        ThreeQsVanillaTweaks.Log.Warning("Invalid host config value for " + pair.Key.Replace("\n", " / ") + ": " + e.Message);
+                    }
+                }
+                else if (absentIsDefault)
+                {
+                    info.HostValue = entry.DefaultValue;
+                    info.HasHost = true;
+                }
+            }
+        }
+
+        private static void ClearHostValues()
+        {
+            hostValues.Clear();
+            foreach (EntryInfo info in infoById.Values) { info.HasHost = false; info.HostValue = null; }
+        }
+
+        // Identifies the set of synchronised settings. When host and client differ (another
+        // version or other startup switches), a client cannot assume missing values are defaults.
+        private static int SyncedKeyHash()
+        {
+            if (syncedKeyHash.HasValue) return syncedKeyHash.Value;
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (string id in entries.Keys.Where(k => !localOnly.Contains(k)).OrderBy(k => k, StringComparer.Ordinal))
+                {
+                    foreach (char ch in id) { hash ^= ch; hash *= 16777619; }
+                    hash ^= 0xFFFF; hash *= 16777619;
+                }
+                syncedKeyHash = (int)hash;
+            }
+            return syncedKeyHash.Value;
+        }
+
         internal static void Tick()
         {
             if (bindingsReady && !initializationFinished) CompleteInitialization();
@@ -583,15 +688,25 @@ namespace Config
                 NetworkServer.RegisterHandler(RequestMessage, OnRequest);
                 serverRegistered = true;
             }
-            if (!NetworkServer.active) serverRegistered = false;
+            if (!NetworkServer.active)
+            {
+                serverRegistered = false;
+                lastSnapshotSent.Clear();
+                fullConnections.Clear();
+                broadcastAt = -1f;
+            }
+            else if (broadcastAt >= 0f && Time.unscaledTime >= broadcastAt)
+            {
+                broadcastAt = -1f;
+                Broadcast();
+            }
             bool clientMode = NetworkClient.active && !NetworkServer.active;
             if (!clientMode)
             {
-                if (wasClient || received) { hostValues.Clear(); received = false; NotifyChanged(); }
-                receivingChunks = null;
-                receivingSnapshotId = -1;
+                if (wasClient || received) { ClearHostValues(); received = false; NotifyChanged(); }
+                ResetReceiving();
                 lastAppliedSnapshotId = -1;
-                receivedChunks = 0;
+                requestedFull = false;
                 currentClient = null;
             }
             else
@@ -600,112 +715,197 @@ namespace Config
                 if (client != null && client != currentClient)
                 {
                     currentClient = client;
+                    if (received) NotifyChanged();
                     received = false;
-                    hostValues.Clear();
-                    receivingChunks = null;
-                    receivingSnapshotId = -1;
+                    ClearHostValues();
+                    ResetReceiving();
                     lastAppliedSnapshotId = -1;
-                    receivedChunks = 0;
+                    requestedFull = false;
                     client.RegisterHandler(SnapshotMessage, OnSnapshot);
                     nextRequest = 0f;
                 }
+                // Each received snapshot message pushes nextRequest back, so a slow
+                // transfer is never re-requested while it is still arriving.
                 if (currentClient != null && currentClient.isConnected && !received && Time.unscaledTime >= nextRequest)
                 {
-                    currentClient.Send(RequestMessage, new SettingsMessage { payload = "" });
-                    nextRequest = Time.unscaledTime + 3f;
+                    currentClient.Send(RequestMessage, new SettingsMessage { payload = requestedFull ? FullRequest : "" });
+                    nextRequest = Time.unscaledTime + RequestRetrySeconds;
                 }
             }
             wasClient = clientMode;
         }
+        private static void ResetReceiving()
+        {
+            receivingChunks = null;
+            receivingSnapshotId = -1;
+            receivedChunks = 0;
+        }
         private static void OnRequest(NetworkMessage message)
         {
-            if (NetworkServer.active && message.conn != null)
-                SendSnapshot((type, packet) => message.conn.Send(type, packet));
+            if (!NetworkServer.active || message.conn == null) return;
+            bool full = false;
+            try { full = message.ReadMessage<SettingsMessage>().payload == FullRequest; }
+            catch (Exception) { }
+            int connection = message.conn.connectionId;
+            float now = Time.unscaledTime;
+            if (full) fullConnections.Add(connection);
+            else fullConnections.Remove(connection);
+            // A complete-list request is answered even shortly after a changed-values snapshot.
+            if (lastSnapshotSent.TryGetValue(connection, out var last) &&
+                now - last.Time < ResendCooldownSeconds && (!full || last.Full)) return;
+            lastSnapshotSent[connection] = (now, full);
+            NetworkConnection conn = message.conn;
+            SendSnapshot(full, (type, packet) => conn.Send(type, packet));
+        }
+        private static void ScheduleBroadcast()
+        {
+            if (broadcastAt < 0f) broadcastAt = Time.unscaledTime + BroadcastDelaySeconds;
         }
         private static void Broadcast()
         {
-            if (NetworkServer.active) SendSnapshot((type, packet) => NetworkServer.SendToAll(type, packet));
-        }
-        private static void SendSnapshot(Action<short, MessageBase> send)
-        {
-            string contents = Serialize();
-            int count = Math.Max(1, (contents.Length + SnapshotChunkSize - 1) / SnapshotChunkSize);
-            int id = ++nextSnapshotId;
-            for (int i = 0; i < count; ++i)
+            if (!NetworkServer.active) return;
+            List<SnapshotChunkMessage> changed = null, complete = null;
+            foreach (NetworkConnection conn in NetworkServer.connections)
             {
-                int start = i * SnapshotChunkSize;
-                send(SnapshotMessage, new SnapshotChunkMessage
-                {
-                    snapshotId = id,
-                    index = i,
-                    count = count,
-                    payload = contents.Substring(start, Math.Min(SnapshotChunkSize, contents.Length - start))
-                });
+                if (conn == null) continue;
+                bool full = fullConnections.Contains(conn.connectionId);
+                List<SnapshotChunkMessage> messages = full
+                    ? complete ?? (complete = BuildMessages(true))
+                    : changed ?? (changed = BuildMessages(false));
+                foreach (SnapshotChunkMessage packet in messages) conn.Send(SnapshotMessage, packet);
             }
         }
-        private static string Serialize()
+        private static void SendSnapshot(bool full, Action<short, MessageBase> send)
         {
-            var sb = new StringBuilder();
+            foreach (SnapshotChunkMessage packet in BuildMessages(full)) send(SnapshotMessage, packet);
+        }
+        private static List<SnapshotChunkMessage> BuildMessages(bool full)
+        {
+            List<KeyValuePair<string, string>> values = BuildSnapshot(full);
+            var chunks = new List<List<KeyValuePair<string, string>>>();
+            var current = new List<KeyValuePair<string, string>>();
+            int bytes = 0;
+            foreach (var pair in values)
+            {
+                int size = Encoding.UTF8.GetByteCount(pair.Key) + Encoding.UTF8.GetByteCount(pair.Value) + 4;
+                if (current.Count > 0 && bytes + size > SnapshotChunkBytes)
+                {
+                    chunks.Add(current);
+                    current = new List<KeyValuePair<string, string>>();
+                    bytes = 0;
+                }
+                current.Add(pair);
+                bytes += size;
+            }
+            // Always send at least one message: an empty changed-values snapshot is valid.
+            chunks.Add(current);
+            int id = ++nextSnapshotId;
+            int hash = SyncedKeyHash();
+            var messages = new List<SnapshotChunkMessage>(chunks.Count);
+            for (int i = 0; i < chunks.Count; ++i)
+            {
+                messages.Add(new SnapshotChunkMessage
+                {
+                    protocol = SyncProtocol,
+                    snapshotId = id,
+                    index = i,
+                    count = chunks.Count,
+                    keyHash = hash,
+                    full = full,
+                    values = chunks[i]
+                });
+            }
+            return messages;
+        }
+        // full: every synchronised value. Otherwise only values that differ from their
+        // defaults, plus the startup switches used for the module compatibility check.
+        private static List<KeyValuePair<string, string>> BuildSnapshot(bool full)
+        {
+            var values = new List<KeyValuePair<string, string>>();
             foreach (var pair in entries.OrderBy(p => p.Key, StringComparer.Ordinal))
             {
                 if (localOnly.Contains(pair.Key)) continue;
                 object value = pair.Value.BoxedValue;
+                bool always = false;
                 // Advertise the modules loaded for this session, rather than a
                 // switch edited for the next restart.
                 foreach (var module in moduleSwitches)
-                    if (ReferenceEquals(pair.Value, module.Value)) { value = startupModules[module.Key]; break; }
-                if (startupSwitches.TryGetValue(pair.Key, out bool startupValue)) value = startupValue;
+                    if (ReferenceEquals(pair.Value, module.Value)) { value = startupModules[module.Key]; always = true; break; }
+                if (startupSwitches.TryGetValue(pair.Key, out bool startupValue)) { value = startupValue; always = true; }
                 string raw = TomlTypeConverter.ConvertToString(value, pair.Value.SettingType);
-                sb.Append(Convert.ToBase64String(Encoding.UTF8.GetBytes(pair.Key)));
-                sb.Append('|');
-                sb.Append(Convert.ToBase64String(Encoding.UTF8.GetBytes(raw)));
-                sb.Append('\n');
+                if (!full && !always &&
+                    raw == TomlTypeConverter.ConvertToString(pair.Value.DefaultValue, pair.Value.SettingType)) continue;
+                values.Add(new KeyValuePair<string, string>(pair.Key, raw));
             }
-            return sb.ToString();
+            return values;
         }
         private static void OnSnapshot(NetworkMessage message)
         {
             if (NetworkServer.active) return;
             var chunk = message.ReadMessage<SnapshotChunkMessage>();
-            if (chunk.count < 1 || chunk.count > 4096 || chunk.index < 0 || chunk.index >= chunk.count ||
-                chunk.payload == null || chunk.payload.Length > SnapshotChunkSize) return;
+            if (chunk.protocol != SyncProtocol)
+            {
+                if (!warnedProtocol)
+                {
+                    warnedProtocol = true;
+                    ThreeQsVanillaTweaks.Log.Warning("The host uses a different 3QsVanillaTweaks settings format. Install the same version as the host.");
+                }
+                return;
+            }
+            if (chunk.count < 1 || chunk.count > 4096 || chunk.index < 0 || chunk.index >= chunk.count || chunk.values == null) return;
             if (chunk.snapshotId <= lastAppliedSnapshotId ||
                 receivingSnapshotId >= 0 && chunk.snapshotId < receivingSnapshotId) return;
+            // The transfer is progressing; do not ask for another copy yet.
+            nextRequest = Time.unscaledTime + RequestRetrySeconds;
             if (chunk.snapshotId != receivingSnapshotId || receivingChunks == null || receivingChunks.Length != chunk.count)
             {
                 receivingSnapshotId = chunk.snapshotId;
-                receivingChunks = new string[chunk.count];
+                receivingChunks = new List<KeyValuePair<string, string>>[chunk.count];
                 receivedChunks = 0;
             }
             if (receivingChunks[chunk.index] == null)
             {
-                receivingChunks[chunk.index] = chunk.payload;
+                receivingChunks[chunk.index] = chunk.values;
                 receivedChunks++;
             }
             if (receivedChunks != receivingChunks.Length) return;
-            string payload = string.Concat(receivingChunks);
-            receivingChunks = null;
-            receivingSnapshotId = -1;
+            var parts = receivingChunks;
+            ResetReceiving();
             lastAppliedSnapshotId = chunk.snapshotId;
-            var incoming = new Dictionary<string, string>();
-            foreach (string line in payload.Split('\n'))
+
+            // A changed-values snapshot is only usable when both sides have the same settings.
+            if (!chunk.full && chunk.keyHash != SyncedKeyHash())
             {
-                if (string.IsNullOrEmpty(line)) continue;
-                string[] pieces = line.Split('|');
-                if (pieces.Length != 2) continue;
-                try
+                if (!requestedFull)
                 {
-                    string id = Encoding.UTF8.GetString(Convert.FromBase64String(pieces[0]));
-                    string raw = Encoding.UTF8.GetString(Convert.FromBase64String(pieces[1]));
-                    if (!localOnly.Contains(id) && entries.ContainsKey(id)) incoming[id] = raw;
+                    requestedFull = true;
+                    ThreeQsVanillaTweaks.Log.Info("Host settings list differs from this game's; requesting the complete list.");
+                    if (currentClient != null && currentClient.isConnected)
+                        currentClient.Send(RequestMessage, new SettingsMessage { payload = FullRequest });
+                    nextRequest = Time.unscaledTime + RequestRetrySeconds;
                 }
-                catch (FormatException) { }
+                return;
             }
+
+            var incoming = new Dictionary<string, string>();
+            foreach (var part in parts)
+                foreach (var pair in part)
+                    if (pair.Key != null && pair.Value != null && !localOnly.Contains(pair.Key) && entries.ContainsKey(pair.Key))
+                        incoming[pair.Key] = pair.Value;
+            bool absentIsDefault = !chunk.full;
+            bool changed = !received || absentIsDefault != hostAbsentIsDefault || incoming.Count != hostValues.Count;
+            if (!changed)
+                foreach (var pair in incoming)
+                    if (!hostValues.TryGetValue(pair.Key, out string existing) || existing != pair.Value) { changed = true; break; }
+            received = true;
+            if (!changed) return;
             hostValues.Clear();
             foreach (var pair in incoming) hostValues.Add(pair.Key, pair.Value);
-            received = true;
+            hostAbsentIsDefault = absentIsDefault;
+            ApplyHostValues(absentIsDefault);
             CheckModuleCompatibility();
-            ThreeQsVanillaTweaks.Log.Info("Received host settings: " + hostValues.Count);
+            ThreeQsVanillaTweaks.Log.Info("Received host settings: " + hostValues.Count +
+                (absentIsDefault ? " non-default value(s); other settings use their defaults." : " value(s) (complete list)."));
             NotifyChanged();
         }
         private static void CheckModuleCompatibility()
@@ -733,15 +933,32 @@ namespace Config
         }
         private sealed class SnapshotChunkMessage : MessageBase
         {
-            public int snapshotId, index, count;
-            public string payload;
+            public int protocol, snapshotId, index, count, keyHash;
+            public bool full;
+            public List<KeyValuePair<string, string>> values;
             public override void Serialize(NetworkWriter writer)
             {
-                writer.Write(snapshotId); writer.Write(index); writer.Write(count); writer.Write(payload ?? "");
+                writer.Write(protocol); writer.Write(snapshotId); writer.Write(index); writer.Write(count);
+                writer.Write(keyHash); writer.Write(full);
+                writer.Write(values?.Count ?? 0);
+                if (values == null) return;
+                foreach (var pair in values) { writer.Write(pair.Key ?? ""); writer.Write(pair.Value ?? ""); }
             }
             public override void Deserialize(NetworkReader reader)
             {
-                snapshotId = reader.ReadInt32(); index = reader.ReadInt32(); count = reader.ReadInt32(); payload = reader.ReadString();
+                protocol = reader.ReadInt32();
+                if (protocol != SyncProtocol) return;
+                snapshotId = reader.ReadInt32(); index = reader.ReadInt32(); count = reader.ReadInt32();
+                keyHash = reader.ReadInt32(); full = reader.ReadBoolean();
+                int length = reader.ReadInt32();
+                if (length < 0 || length > 100000) { values = null; return; }
+                values = new List<KeyValuePair<string, string>>(length);
+                for (int i = 0; i < length; ++i)
+                {
+                    string key = reader.ReadString();
+                    string value = reader.ReadString();
+                    values.Add(new KeyValuePair<string, string>(key, value));
+                }
             }
         }
     }

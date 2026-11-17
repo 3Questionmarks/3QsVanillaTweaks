@@ -311,7 +311,7 @@ namespace Tweaks.Items.Common
             if (!Active || !C.Get(bosses) || !NetworkServer.active || !b || !b.teamComponent || b.teamComponent.teamIndex == TeamIndex.Player)
                 return;
             string name = b.gameObject.name;
-            string family = name.StartsWith("Brother") ? "Mithrix" : name.StartsWith("VoidRaidCrab") ? "Voidling" : name.StartsWith("FalseSonBoss") ? "FalseSon" : name.StartsWith("Providence") && !name.Contains("Shadow") ? "Providence" : name.StartsWith("SolusWing") ? "SolusWing" : name.StartsWith("ScavLunar") ? "TwistedScavenger" : null;
+            string family = name.StartsWith("Brother") ? "Mithrix" : name.Contains("VoidRaidCrab") ? "Voidling" : name.StartsWith("FalseSonBoss") ? "FalseSon" : (name.StartsWith("ProvBody") || name.StartsWith("ProvDesperationBody") || name.StartsWith("ProvFinalBody")) ? "Providence" : name.StartsWith("SolusWing") ? "SolusWing" : name.StartsWith("SolusHeart") ? "SolusHeart" : name.StartsWith("ScavLunar") ? "TwistedScavenger" : name.StartsWith("ReaperBoss") ? "AnimaHarvester" : null;
             if (family == null)
                 return;
             if (bossStage != Stage.instance)

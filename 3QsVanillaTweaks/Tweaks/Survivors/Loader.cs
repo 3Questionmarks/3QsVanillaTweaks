@@ -58,6 +58,10 @@ namespace Tweaks.Survivors
             internal bool Cone;
             internal float Born;
             internal ProjectileProximityBeamController Beam;
+            // Live markers, so skill updates need not search the whole scene each tick.
+            internal static readonly HashSet<Marker> Active = new HashSet<Marker>();
+            private void OnEnable() => Active.Add(this);
+            private void OnDisable() => Active.Remove(this);
             private void FixedUpdate()
             {
                 if (Profile?.Index != 5 || !NetworkServer.active) return;
@@ -375,11 +379,21 @@ namespace Tweaks.Survivors
         private static Exception AfterPayment(SkillDef __instance, Payment __state, Exception __exception) { if (__state != null) __instance.stockToConsume = __state.Cost; return __exception; }
         private static void AfterRequired(SkillDef __instance, GenericSkill skillSlot, ref bool __result) { if (definitions.TryGetValue(__instance, out Profile p) && p.Skill.RequireAll && skillSlot.stock < skillSlot.maxStock) __result = false; }
         private static void AfterRecharge(SkillDef __instance, GenericSkill skillSlot, ref int __result) { if (definitions.TryGetValue(__instance, out Profile p) && p.Skill.RechargeAll) __result = skillSlot.maxStock; }
+        private static readonly List<EntityStateMachine> machines = new List<EntityStateMachine>();
         private static void BeforeSkillUpdate(SkillDef __instance, GenericSkill skillSlot, ref float deltaTime)
         {
             if (!definitions.TryGetValue(__instance, out Profile p) || !p.Skill.CooldownAfterDuration || !skillSlot.characterBody) return;
-            bool active = skillSlot.characterBody.GetComponents<EntityStateMachine>().Any(m => ForState(m.state) == p);
-            if (p.Index == 5) active |= UnityEngine.Object.FindObjectsOfType<Marker>().Any(m => m && m.Profile == p && m.GetComponent<ProjectileController>().owner == skillSlot.gameObject);
+            skillSlot.characterBody.GetComponents(machines);
+            bool active = false;
+            foreach (EntityStateMachine machine in machines) if (machine && ForState(machine.state) == p) { active = true; break; }
+            machines.Clear();
+            if (p.Index == 5 && !active)
+                foreach (Marker m in Marker.Active)
+                {
+                    if (!m || m.Profile != p) continue;
+                    ProjectileController controller = m.GetComponent<ProjectileController>();
+                    if (controller && controller.owner == skillSlot.gameObject) { active = true; break; }
+                }
             if (active) deltaTime = 0f;
         }
         internal static float PunchDamage(float baseDamage, float velocityDamage, float speed) => baseDamage + velocityDamage * speed;

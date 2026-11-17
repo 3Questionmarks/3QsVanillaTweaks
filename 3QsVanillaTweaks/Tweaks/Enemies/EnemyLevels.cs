@@ -15,7 +15,7 @@ namespace Tweaks.Enemies
         static ConfigEntry<bool> enabled, noHealing;
         static ConfigEntry<int> cap;
         static readonly List<ILHook> hooks = new List<ILHook>();
-        sealed class Snapshot { internal float Level, Health; internal bool Seen; }
+        sealed class Snapshot { internal float Level, Health, FullHealth; internal bool Seen; }
         static readonly ConditionalWeakTable<CharacterBody, Snapshot> snapshots = new ConditionalWeakTable<CharacterBody, Snapshot>();
         internal static void Init()
         {
@@ -34,12 +34,15 @@ namespace Tweaks.Enemies
         static void Before(CharacterBody __instance, out Snapshot __state)
         {
             var tracked = snapshots.GetOrCreateValue(__instance);
-            __state = new Snapshot { Seen = tracked.Seen, Level = __instance.level, Health = __instance.healthComponent ? __instance.healthComponent.health : 0f };
+            __state = new Snapshot { Seen = tracked.Seen, Level = __instance.level, Health = __instance.healthComponent ? __instance.healthComponent.health : 0f, FullHealth = __instance.maxHealth };
             tracked.Seen = true;
         }
         static void After(CharacterBody __instance, Snapshot __state)
         {
             if (!__state.Seen || !UnityEngine.Networking.NetworkServer.active || !C.Get(enabled) || !C.Get(noHealing) || !__instance.healthComponent || !__instance.teamComponent || __instance.teamComponent.teamIndex == TeamIndex.Player || __state.Level <= 0 || __instance.level <= __state.Level) return;
+            // An undamaged enemy stays at full health. Bodies that receive their real level after
+            // their first stat calculation (e.g. scripted bosses) would otherwise keep low-level health.
+            if (__state.FullHealth > 0f && __state.Health >= __state.FullHealth * 0.999f) return;
             __instance.healthComponent.Networkhealth = Mathf.Min(__instance.healthComponent.health, __state.Health);
         }
     }

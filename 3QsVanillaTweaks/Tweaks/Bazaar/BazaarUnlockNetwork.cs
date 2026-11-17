@@ -131,7 +131,11 @@ namespace Tweaks.Bazaar
             if (NetworkServer.active) return;
             var state = message.ReadMessage<InteractionState>();
             if (state.Id.IsEmpty()) return;
-            if (!state.IsSceneObject) clientStates[state.Id] = state;
+            if (!state.IsSceneObject)
+            {
+                clientStates[state.Id] = state;
+                RefreshSeers();
+            }
             else if (!TryApplyPose(state)) pendingPoses[state.Id] = state;
             else pendingPoses.Remove(state.Id);
         }

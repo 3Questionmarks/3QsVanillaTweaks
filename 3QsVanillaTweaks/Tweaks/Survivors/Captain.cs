@@ -193,6 +193,17 @@ namespace Tweaks.Survivors
             ContentManager.collectContentPackProviders += add => add(new CaptainContent());
             RoR2Application.onLoad += Load;
         }
+        // Blue copy of the primary's icon, so Charged Shotgun is distinguishable in the loadout.
+        private static Sprite ChargedIcon(Sprite original)
+        {
+            if (!original) return original;
+            try { return S.RecolourIcon(original, "3QSChargedShotgunIcon", .58f, true); }
+            catch (Exception e)
+            {
+                ThreeQsVanillaTweaks.Log.Warning("3QSChargedShotgunIcon: retaining the primary's icon because conversion failed: " + e.Message);
+                return original;
+            }
+        }
         private sealed class CaptainContent : IContentPackProvider
         {
             private readonly ContentPack content = new ContentPack();
@@ -209,6 +220,7 @@ namespace Tweaks.Survivors
                     chargedDef.activationState = new SerializableEntityStateType(typeof(ChargedShotgunState));
                     chargedDef.baseRechargeInterval = 2f; chargedDef.baseMaxStock = chargedDef.rechargeStock = chargedDef.stockToConsume = chargedDef.requiredStock = 1;
                     chargedDef.beginSkillCooldownOnSkillEnd = true; chargedDef.mustKeyPress = true;
+                    chargedDef.icon = ChargedIcon(primary.icon);
                     var machine = prefabBody.gameObject.AddComponent<EntityStateMachine>(); machine.customName = ChargedMachine;
                     machine.initialStateType = machine.mainStateType = new SerializableEntityStateType(typeof(Idle));
                     var network = prefabBody.GetComponent<NetworkStateMachine>();

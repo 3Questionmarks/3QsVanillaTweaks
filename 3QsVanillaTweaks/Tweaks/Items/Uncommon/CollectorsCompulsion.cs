@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -71,6 +70,12 @@ namespace Tweaks.Items.Uncommon
                 U.Patch(typeof(BarrelInteraction), "OnInteractionBegin", typeof(CollectorsCompulsion), prefix: nameof(BarrelBefore), postfix: nameof(BarrelAfter));
                 U.Patch(typeof(BarrelInteraction), "DropPickupIfSpeedOnPickup", typeof(CollectorsCompulsion), prefix: nameof(NativeBarrel));
                 S.Patch(U.Harmony, typeof(PickupDropletController), "CreatePickupDroplet", typeof(CollectorsCompulsion), prefix: nameof(DropBefore), args: new[] { typeof(GenericPickupController.CreatePickupInfo), typeof(Vector3), typeof(Vector3) });
+                // Printers drop through ShopTerminalBehavior.DropPickup(isDuplicated: true),
+                // called from EntityStates.Duplicator.Duplicating.DropDroplet on the server.
+                var printerDrop = A.Method(typeof(ShopTerminalBehavior), "DropPickup", new[] { typeof(bool) });
+                if (printerDrop == null)
+                    throw new MissingMethodException(typeof(ShopTerminalBehavior).FullName, "DropPickup(bool)");
+                U.Harmony.Patch(printerDrop, prefix: new HarmonyMethod(typeof(CollectorsCompulsion), nameof(PrinterDropBefore)), finalizer: new HarmonyMethod(typeof(CollectorsCompulsion), nameof(PrinterDropAfter)));
                 var drop = A.Method(typeof(PickupDropletController), "CreatePickupDroplet", new[] { typeof(GenericPickupController.CreatePickupInfo), typeof(Vector3), typeof(Vector3) });
                 U.Harmony.Patch(drop, finalizer: new HarmonyMethod(typeof(CollectorsCompulsion), nameof(DropAfter)));
                 U.Patch(typeof(PickupDropletController), "CreatePickup", typeof(CollectorsCompulsion), prefix: nameof(TransferBefore));
@@ -256,7 +261,6 @@ namespace Tweaks.Items.Uncommon
             };
             if (!c.Active)
                 return;
-            printerCreation = printerCreation || new StackTrace().GetFrames().Any(f => (f.GetMethod()?.DeclaringType?.FullName ?? "").IndexOf("Duplicator", StringComparison.OrdinalIgnoreCase) >= 0);
             if (printerCreation)
                 __state.Existing = new HashSet<int>(UnityEngine.Object.FindObjectsOfType<PickupDropletController>().Select(p => p.GetInstanceID()));
         }
@@ -268,6 +272,20 @@ namespace Tweaks.Items.Uncommon
                     if (!__state.Existing.Contains(p.GetInstanceID()) && !p.GetComponent<PrinterOrigin>())
                         p.gameObject.AddComponent<PrinterOrigin>();
             printerCreation = __state.Previous;
+            return __exception;
+        }
+
+        // __0: isDuplicated. Only printer output is marked; ordinary terminal purchases are not.
+        static void PrinterDropBefore(bool __0, out bool __state)
+        {
+            __state = printerCreation;
+            if (__0 && c.Active)
+                printerCreation = true;
+        }
+
+        static Exception PrinterDropAfter(bool __state, Exception __exception)
+        {
+            printerCreation = __state;
             return __exception;
         }
 

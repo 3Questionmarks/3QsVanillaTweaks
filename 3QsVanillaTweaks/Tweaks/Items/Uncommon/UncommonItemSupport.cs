@@ -234,13 +234,13 @@ namespace Tweaks.Items.Uncommon
         internal static void Add(CharacterBody b, string stat, float value)
         {
             if (value != 0)
-                S.Set(b, stat, (float)A.Property(typeof(CharacterBody), stat).GetValue(b, null) + value);
+                S.Set(b, stat, S.GetStat(b, stat) + value);
         }
 
         internal static void Scale(CharacterBody b, string stat, float percent)
         {
             if (percent != 0)
-                S.Set(b, stat, (float)A.Property(typeof(CharacterBody), stat).GetValue(b, null) * (1 + percent / 100));
+                S.Set(b, stat, S.GetStat(b, stat) * (1 + percent / 100));
         }
 
         internal static void Cooldowns(CharacterBody b, float seconds)

@@ -26,10 +26,9 @@ namespace Tweaks.RoRArtifacts
     {
         private const string Section = "Artifacts - Fleeting Moon";
         private const short SharedBalanceMessageId = 190;
-        private const uint BossCoinReward = 3;
         private const uint StageLootCoinReward = 2;
         private const uint CoinsPerKarma = 5;
-        private static ConfigEntry<int> startingCoins;
+        private static ConfigEntry<int> startingCoins, bossCoinReward;
         private static ConfigEntry<bool> shareRunWallet;
         private static ConfigEntry<float> dropMultiplier;
         private static ConfigEntry<bool> earnPermanentCoins;
@@ -65,6 +64,9 @@ namespace Tweaks.RoRArtifacts
                 "Temporary Lunar Coins at run start. A shared wallet starts with this amount once, and individual wallets each start with this amount.");
             shareRunWallet = ModConfig.BindBool(Section, "Share Temporary Lunar Coin Wallet", true,
                 "Pool temporary Lunar Coins for the entire team. Pickups add once, and spending reduces everyone's balance. Applies on the next run with Fleeting Moon.");
+            bossCoinReward = ModConfig.Bind(Section, "Boss Encounter Coin Reward", 3,
+                new ConfigDescription("Temporary Lunar Coins awarded once when every boss in an encounter is defeated, however many bosses it contains.",
+                    new AcceptableValueRange<int>(0, 999)));
             dropMultiplier = ModConfig.Bind(Section, "Lunar Coin Drop Rate Multiplier", 5f,
                 "Multiplier to the configured base Lunar Coin drop chance (5 means five times normal). Successful-drop reduction is controlled separately in Other - Lunar Coins.");
 
@@ -153,7 +155,8 @@ namespace Tweaks.RoRArtifacts
             harmony.Patch(AccessTools.Method(typeof(KarmaManager), nameof(KarmaManager.ModifyKarma), new[] { typeof(int) }),
                 prefix: new HarmonyMethod(typeof(TemporaryLunarCoins), nameof(BeforeModifyKarma)),
                 postfix: new HarmonyMethod(typeof(TemporaryLunarCoins), nameof(AfterModifyKarma)));
-            GlobalEventManager.onCharacterDeathServer += OnCharacterDeath;
+            // One reward per boss encounter: Mountain Shrine and scaled extra bosses join the same group.
+            BossGroup.onBossGroupDefeatedServer += OnBossGroupDefeated;
             GlobalEventManager.onCharacterPickupItem += OnCharacterPickupItem;
             GenericPickupController.onPickupConsumed += OnPickupConsumed;
             Stage.onServerStageComplete += OnStageComplete;
@@ -361,14 +364,11 @@ namespace Tweaks.RoRArtifacts
                 Log.Info($"Fleeting Moon: awarded {amount} temporary lunar coins for {objective}.");
         }
 
-        private static void OnCharacterDeath(DamageReport report)
+        private static void OnBossGroupDefeated(BossGroup group)
         {
-            if (!active || !NetworkServer.active || report.attackerTeamIndex != TeamIndex.Player ||
-                report.victimTeamIndex == TeamIndex.Player)
-                return;
-
-            if (report.victimIsBoss || (report.victimBody && BossGroup.FindBossGroup(report.victimBody)))
-                AwardTeamTemporaryCoins(BossCoinReward, "defeating a boss");
+            int reward = ModConfig.Get(bossCoinReward);
+            if (!active || !NetworkServer.active || !group || reward <= 0) return;
+            AwardTeamTemporaryCoins((uint)reward, "defeating a boss encounter");
         }
 
         private static void BeforeModifyKarma(KarmaManager __instance, out uint __state)

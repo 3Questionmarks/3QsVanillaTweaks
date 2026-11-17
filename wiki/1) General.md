@@ -40,7 +40,7 @@
 
 - Player-controlled Remote Operation drones can use interactables, collect items and benefit from held items by default.
 - There is a cooldown betweeen respawning times. You can use the equipment to activate this cooldown early and change your drone.
-- See **Allies** for revival, the drone loadouts and the Remote Operation settings.
+- See **Remote Operation** Page for the drone loadouts and the Remote Operation settings.
 
 # Non-enemy objects
 

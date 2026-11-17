@@ -50,7 +50,46 @@ namespace Tweaks.Items.Common
         }
 
         internal static float Total(ConfigEntry<float> first, ConfigEntry<float> extra, int n) => Linear(n, C.Get(first), C.Get(extra));
-        internal static void Set(CharacterBody b, string property, float value) => A.Property(typeof(CharacterBody), property).SetValue(b, value, null);
+        // Stat properties are read and written from RecalculateStats for every body.
+        // Cache compiled accessors instead of resolving the property on each call.
+        sealed class StatAccess
+        {
+            internal Func<CharacterBody, float> Get;
+            internal Action<CharacterBody, float> Set;
+        }
+        static readonly Dictionary<string, StatAccess> statAccess = new Dictionary<string, StatAccess>();
+        static StatAccess Stat(string property)
+        {
+            if (statAccess.TryGetValue(property, out StatAccess access))
+                return access;
+            PropertyInfo info = A.Property(typeof(CharacterBody), property);
+            if (info == null)
+                throw new MissingMemberException(typeof(CharacterBody).FullName, property);
+            access = new StatAccess
+            {
+                Get = b => (float)info.GetValue(b, null),
+                Set = (b, value) => info.SetValue(b, value, null)
+            };
+            if (info.PropertyType == typeof(float))
+            {
+                try
+                {
+                    MethodInfo getter = info.GetGetMethod(true), setter = info.GetSetMethod(true);
+                    if (getter != null && !getter.IsStatic)
+                        access.Get = (Func<CharacterBody, float>)Delegate.CreateDelegate(typeof(Func<CharacterBody, float>), getter);
+                    if (setter != null && !setter.IsStatic)
+                        access.Set = (Action<CharacterBody, float>)Delegate.CreateDelegate(typeof(Action<CharacterBody, float>), setter);
+                }
+                catch (ArgumentException)
+                {
+                    // Keep the reflection accessors if a delegate cannot bind to this property.
+                }
+            }
+            statAccess[property] = access;
+            return access;
+        }
+        internal static float GetStat(CharacterBody b, string property) => Stat(property).Get(b);
+        internal static void Set(CharacterBody b, string property, float value) => Stat(property).Set(b, value);
         // Only remove zero bonuses. Zero thresholds/durations can carry gameplay
         // meaning and must not be silently removed from their conditions.
         static readonly Regex zeroStack = new Regex(@"\s*<style=cStack>\(\+?0(?:[.,]0+)?(?:%|m|s)? per stack\)</style>", RegexOptions.CultureInvariant);

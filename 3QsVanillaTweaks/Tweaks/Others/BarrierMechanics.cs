@@ -23,6 +23,18 @@ namespace Tweaks.Others
         private static ConfigEntry<DecayMode> decay;
         private static ConfigEntry<string> formula;
         private static readonly PropertyInfo maxBarrierProperty = AccessTools.Property(typeof(CharacterBody), "maxBarrier");
+        // Called from RecalculateStats for every body: bind the private setter once.
+        private static Action<CharacterBody, float> setMaxBarrier;
+        private static void SetMaxBarrier(CharacterBody body, float value)
+        {
+            if (setMaxBarrier == null)
+            {
+                MethodInfo setter = maxBarrierProperty.GetSetMethod(true);
+                try { setMaxBarrier = (Action<CharacterBody, float>)Delegate.CreateDelegate(typeof(Action<CharacterBody, float>), setter); }
+                catch (ArgumentException) { setMaxBarrier = (b, v) => setter.Invoke(b, new object[] { v }); }
+            }
+            setMaxBarrier(body, value);
+        }
         private static bool Active => enabled != null && C.Get(enabled);
         internal static bool UsesPreCurseMaximum => Active && C.Get(preCurse);
         private static string cachedFormula, warnedFormula;
@@ -73,7 +85,7 @@ namespace Tweaks.Others
             float value = Capacity(__instance.maxHealth, __instance.maxShield, __instance.cursePenalty,
                 ShieldMechanics.ShieldIsCurseReduced, C.Get(preCurse), C.Get(maximum));
             if (float.IsNaN(value) || float.IsInfinity(value)) return;
-            maxBarrierProperty.GetSetMethod(true).Invoke(__instance, new object[] { value });
+            SetMaxBarrier(__instance, value);
             if (NetworkServer.active && __instance.healthComponent && __instance.healthComponent.barrier > value)
                 __instance.healthComponent.Networkbarrier = value;
         }

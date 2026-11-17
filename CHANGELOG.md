@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.5.2]
+
+### New
+- **Enemy difficulty**
+  - Time scaling multiplier: difficulty rises 1.2× faster over time (configurable).
+  - Enemy health and damage bonuses, applied as vanilla hidden items (10% steps):
+    - Regular enemies: +30% health, +10% damage
+    - Bosses (champions): +40% health, +10% damage
+    - Major bosses: +60% health, +10% damage. Covers Mithrix, Voidling, False Son, Solus Wing, Solus Heart, Twisted Scavengers, DLC 4 Secret Boss and the Anima Harvester. The list is configurable by body name.
+- **Enemy gold scaling**
+  - Enemy kill gold is locked to the stage's entry difficulty, rather than scaling with time.
+  - Kill gold falls behind chest prices as difficulty rises.
+  - Kill gold is offset against the Enemy Credits multiplier
+  - Overall Gold Multiplier, 0.85 by default.
+  - Item, barrel and shrine gold are unaffected, so gold items, and these interactables are relatively stronger.
+- **Holdout turrets** Gunner Turrets teleport around the centre of a holdout zone when it starts.
+- **Bazaar locked contents** (Unlock Mode)
+  - Locked Lunar Shop slots are empty and roll an item when unlocked, rather than displaying an item always.
+  - Locked printers, cauldrons and Hallowed Pools show a hidden "?" item until unlocked.
+  - Locked Lunar Seers don't show their stage until unlocked.
+
+### Changes
+- Artifact of the Fleeting Moon: the boss coin reward is given once per boss encounter, not once per boss killed.
+- Warbanner: the final-boss banner trigger now also covers Solus Heart and the Anima Harvester.
+
+### Fixes
+- Captain: Charged Shotgun has a blue icon again, to tell it apart from the primary.
+- Bazaar Seers: using any Lunar Seer now closes the others, including the extra third seer.
+- Bazaar Wandering Chef: ingredients sometimes couldn't be added. This was a conflict with LookingGlass's menu sorting.
+- Green portals in the Bazaar (and other hidden realms) went to the wrong stage tier, such as Prime Meridian at stage 3, which put later stage numbers out of step.
+- Enemies with "No Healing On Level Up" could spawn with a fraction of their health if there stats where calculated after they had spawned (for example solus wing).
+- Guaranteed Legendary Chests: Sale Star reopens with RetroactiveMacro gave one item per player instead of one.
+- Warbanner: the final-boss trigger never fired for DLC4 Sectet Boss or Voidling.
+
+### Performance and multiplayer
+- Config sync rewritten:
+  - The host sends only non-default settings, once per request.
+  - Clients no longer re-request while a transfer is in progress.
+  - Setting changes are batched.
+  - Clients no longer re-parse settings on every read.
+- Less per-hit and per-tick overhead:
+  - Cached reflection and compiled stat accessors (stat helpers, Barrier Mechanics).
+  - Crowbar no longer allocates on every hit.
+  - Squid Polyp no longer touches turret inventories every tick.
+  - Loader no longer searches the whole scene every tick.
+  - Collector's Compulsion no longer builds a stack trace on every item drop.
+
 ## [0.5.1]
 
 ### Fixes
