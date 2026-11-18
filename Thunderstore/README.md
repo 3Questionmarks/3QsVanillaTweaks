@@ -6,6 +6,10 @@ Basically everything has its own config toggles and settings. The defaults are i
 
 **Current version: 0.5.2**
 
+## What new in 0.5.2?
+- Several bug fixes
+- **Dificulty scaling** Made the game in genreal a bit harder since it was becoming fairly consistant - including reducing the gold gain a bit since in general I felt you where easilly getting more than enough per stage.
+
 ## What's new in 0.5.0?
 
 - **Remote Operation** Gives Remote Operation drones configurable stats and skill sets. In general every drone now has 4 abilities that make them feel more interesting to play. They have had their HP and damage tuned down a bit but the extra skill more than make up for it. Additionally, you can now disconnect from the drone with a press of the Equipment button to return to spectating or another drone, this will also trigger revival items to allow you to play your survivor gain if you obtain one while a drone. Drone players can now interact with the world like any normal player would, although they still cannot charge teleporter zones. Drone players return to their survivors automatically when the Teleporter finishes charging or after a supported hidden-realm boss is defeated.

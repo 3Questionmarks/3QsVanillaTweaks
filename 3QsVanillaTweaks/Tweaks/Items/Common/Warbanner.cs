@@ -89,6 +89,8 @@ namespace Tweaks.Items.Common
                 return;
             S.Ensure();
             S.Stats += Stats;
+            S.EnsureCapacity();
+            S.Capacity += CapacityStats;
             var h = S.Harmony("Warbanner");
             // Hook whichever inventory-copy API this game version exposes.
             foreach (var method in typeof(Inventory).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
@@ -342,6 +344,15 @@ namespace Tweaks.Items.Common
             }
         }
 
+        // Maximum health and shield are changed before vanilla reconciles current health and shield.
+        static void CapacityStats(CharacterBody b)
+        {
+            if (!Active || !b.HasBuff(RoR2Content.Buffs.Warbanner))
+                return;
+            S.Set(b, "maxHealth", b.maxHealth * (1 + Value("Maximum Health Buff (%)") / 100) + Value("Flat Health Buff"));
+            S.Set(b, "maxShield", b.maxShield * (1 + Value("Maximum Shield Buff (%)") / 100) + Value("Flat Shield Buff"));
+        }
+
         static void Stats(CharacterBody b)
         {
             if (!Active || !b.HasBuff(RoR2Content.Buffs.Warbanner))
@@ -351,8 +362,6 @@ namespace Tweaks.Items.Common
             S.Set(b, "crit", b.crit + C.Get(crit));
             if (!b.HasBuff(RoR2Content.Buffs.HealingDisabled))
                 S.Set(b, "regen", b.regen * (1 + Value("Regeneration Buff (%)") / 100) + C.Get(regen));
-            S.Set(b, "maxHealth", b.maxHealth * (1 + Value("Maximum Health Buff (%)") / 100) + Value("Flat Health Buff"));
-            S.Set(b, "maxShield", b.maxShield * (1 + Value("Maximum Shield Buff (%)") / 100) + Value("Flat Shield Buff"));
             S.Set(b, "moveSpeed", b.moveSpeed + Value("Flat Movement Speed Buff"));
             S.Set(b, "attackSpeed", b.attackSpeed + Value("Flat Attack Speed Buff"));
             S.Set(b, "jumpPower", b.jumpPower * (1 + Value("Jump Power Buff (%)") / 100));

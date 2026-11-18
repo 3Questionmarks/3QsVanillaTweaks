@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3
+
+### Fixes
+- Seeker's Tranquility, Kinetic Dampener, and Warbanner's health and shield buffs no longer clamp current health or shield when stats change.
+
 ## [0.5.2]
 
 ### New

@@ -25,31 +25,37 @@ namespace Tweaks.Items.Uncommon
             c.Pair("Shield Explosion Damage (%)", 100, 10, "Damage as a percentage of maximum shield. Vanilla: 100 +10% per additional stack.");
             c.Pair("Proc Coefficient", 1, 0, "Shield-break blast proc coefficient. Vanilla: 1.");
             c.Pair("Explosion Radius", 12.5f, 0, "Shield-break blast radius. Vanilla: 12.5 metres.");
-            // Preserve the native shield grant and adjust only the configured delta.
-            // The minimum also covers cases where another stat hook suppresses that grant.
+            // Shield capacity is adjusted inside RecalculateStats, before vanilla derives barrier and
+            // hull capacity and reconciles current shield against it. Changing it in the shared
+            // postfix let vanilla clamp current shield to the smaller native maximum on every
+            // recalculation, e.g. when starting or stopping sprinting.
             U.Ensure();
+            S.EnsureCapacity();
+            S.Capacity += Capacity;
             U.Stats += b =>
             {
                 int n = b.inventory && c.Item ? b.inventory.GetItemCountEffective(c.Item) : 0;
-                if (n == 0)
-                    return;
-                float configuredShield = b.maxHealth * (c.Active ? c.Total("Shield (%)", n) : 4f) / 100f;
-                float nativeShield = b.maxHealth * 0.04f;
-                float newShield = Mathf.Max(configuredShield, b.maxShield + configuredShield - nativeShield);
-                float extraShield = newShield - b.maxShield;
-                if (extraShield != 0f)
-                {
-                    U.Add(b, "maxShield", extraShield);
-                    U.Add(b, "maxBarrier", extraShield);
-                    U.Add(b, "maxHull", extraShield);
-                }
-                if (c.Active && b.healthComponent.shield > 0)
+                if (n > 0 && c.Active && b.healthComponent.shield > 0)
                     U.Add(b, "armor", c.Total("Armor", n) - 30f * n);
             };
             if (c.Enabled.Value)
                 U.Patch(typeof(HealthComponent), "GetShieldBoosterDamage", typeof(KineticDampener), postfix: nameof(Damage));
             KineticSupport.Register(c);
             c.Text(() => "Gain " + c.V("Shield (%)", "%", "cIsHealing") + " maximum health as shield and " + c.V("Armor", "", "cIsHealing") + " armor while shield remains. Breaking your shield releases a <style=cIsDamage>blast</style>.", () => "Gain <style=cIsHealing>shield and armor</style>. Broken shields release a blast.");
+        }
+
+        // Preserve the native shield grant and adjust only the configured delta.
+        // The minimum also covers cases where another stat hook suppresses that grant.
+        static void Capacity(CharacterBody b)
+        {
+            int n = b.inventory && c.Item ? b.inventory.GetItemCountEffective(c.Item) : 0;
+            if (n == 0)
+                return;
+            float configuredShield = b.maxHealth * (c.Active ? c.Total("Shield (%)", n) : 4f) / 100f;
+            float nativeShield = b.maxHealth * 0.04f;
+            float newShield = Mathf.Max(configuredShield, b.maxShield + configuredShield - nativeShield);
+            if (newShield != b.maxShield)
+                S.Set(b, "maxShield", newShield);
         }
 
         static void Damage(HealthComponent __instance, int stack, ref float __result)

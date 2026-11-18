@@ -104,6 +104,46 @@ namespace Tweaks.Items.Common
             h.Patch(method, prefix == null ? null : new HarmonyMethod(owner, prefix), postfix == null ? null : new HarmonyMethod(owner, postfix), transpiler == null ? null : new HarmonyMethod(owner, transpiler));
         }
 
+        // Fires inside RecalculateStats just before maxBarrier = maxHealth + maxShield. Maximum health
+        // and shield are final there, but vanilla has not yet derived barrier and hull capacity or
+        // reconciled current health and shield. Change capacity here, not in the Stats postfix: that
+        // runs afterwards and lets vanilla clamp current shield or health to the old maximum.
+        internal static event Action<CharacterBody> Capacity;
+        private static bool capacityReady;
+        internal static void EnsureCapacity()
+        {
+            if (capacityReady)
+                return;
+            capacityReady = true;
+            Harmony("Capacity").Patch(A.Method(typeof(CharacterBody), "RecalculateStats"),
+                transpiler: new HarmonyMethod(typeof(CommonItemSupport), nameof(CapacityIL)));
+        }
+
+        private static void RaiseCapacity(CharacterBody body) => Capacity?.Invoke(body);
+
+        private static IEnumerable<CodeInstruction> CapacityIL(IEnumerable<CodeInstruction> input)
+        {
+            var code = input.ToList();
+            int found = 0;
+            for (int i = 6; i < code.Count; i++)
+            {
+                if (!(code[i].operand is MethodInfo setter) || setter.DeclaringType != typeof(CharacterBody) || setter.Name != "set_maxBarrier") continue;
+                if (code[i - 1].opcode != OpCodes.Add || !(code[i - 2].operand is MethodInfo shield) || shield.Name != "get_maxShield" ||
+                    !(code[i - 4].operand is MethodInfo health) || health.Name != "get_maxHealth" ||
+                    code[i - 3].opcode != OpCodes.Ldarg_0 || code[i - 5].opcode != OpCodes.Ldarg_0 || code[i - 6].opcode != OpCodes.Ldarg_0) continue;
+                int start = i - 6;
+                var load = new CodeInstruction(OpCodes.Ldarg_0);
+                load.labels.AddRange(code[start].labels); code[start].labels.Clear();
+                load.blocks.AddRange(code[start].blocks); code[start].blocks.Clear();
+                code.InsertRange(start, new[] { load, new CodeInstruction(OpCodes.Call, A.Method(typeof(CommonItemSupport), nameof(RaiseCapacity))) });
+                found++;
+                i += 2;
+            }
+            if (found != 1)
+                throw new InvalidOperationException("Shared stat capacity anchor changed: " + found);
+            return code;
+        }
+
         internal static void Ensure()
         {
             if (ready)

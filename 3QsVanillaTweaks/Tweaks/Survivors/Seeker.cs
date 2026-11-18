@@ -303,7 +303,12 @@ namespace Tweaks.Survivors
         private static void InstallHooks()
         {
             if (stats != null) Patch(typeof(CharacterBody), "Awake", postfix: nameof(AfterBody));
-            if (passiveEnabled.Value) Patch(typeof(CharacterBody), "RecalculateStats", postfix: nameof(AfterStats));
+            if (passiveEnabled.Value)
+            {
+                Patch(typeof(CharacterBody), "RecalculateStats", postfix: nameof(AfterStats));
+                Tweaks.Items.Common.CommonItemSupport.EnsureCapacity();
+                Tweaks.Items.Common.CommonItemSupport.Capacity += BeforeCapacity;
+            }
             if (profiles.Count > 0)
             {
                 Patch(typeof(SkillDef), "OnExecute", nameof(BeforePayment), finalizer: nameof(AfterPayment));
@@ -374,11 +379,19 @@ namespace Tweaks.Survivors
             foreach (CharacterBody body in CharacterBody.readOnlyInstancesList) if (IsSeeker(body)) { stats?.Apply(body); body.MarkAllStatsDirty(); }
         }
         private static void AfterBody(CharacterBody __instance) { if (IsSeeker(__instance)) stats?.Apply(__instance); }
+        // Maximum health and shield are scaled before vanilla reconciles current health and shield,
+        // so gaining or losing Tranquility does not clamp them.
+        private static void BeforeCapacity(CharacterBody body)
+        {
+            if (!IsSeeker(body)) return;
+            float factor = 1f + Stacks(body) * C.Get(statBonus) / 100f;
+            foreach (string stat in new[] { "maxHealth", "maxShield" }) Write(body, stat, Number(body, stat) * factor);
+        }
         private static void AfterStats(CharacterBody __instance)
         {
             if (!IsSeeker(__instance)) return;
             float bonus = Stacks(__instance) * C.Get(statBonus) / 100f, factor = 1f + bonus;
-            foreach (string stat in new[] { "maxHealth", "maxShield", "regen", "damage", "moveSpeed", "attackSpeed", "armor" }) Write(__instance, stat, Number(__instance, stat) * factor);
+            foreach (string stat in new[] { "regen", "damage", "moveSpeed", "attackSpeed", "armor" }) Write(__instance, stat, Number(__instance, stat) * factor);
             Write(__instance, "crit", __instance.crit + bonus * 100f);
         }
         private static string PassiveDescription() => "Gain <style=cIsUtility>Tranquility</style> to empower your skills" +
